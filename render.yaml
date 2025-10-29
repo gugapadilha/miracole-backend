@@ -1,0 +1,59 @@
+services:
+  - type: web
+    name: miracole-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DB_HOST
+        value: chi211.greengeeks.net
+      - key: DB_PORT
+        value: 3306
+      - key: DB_USER
+        value: WebDeveloper
+      - key: DB_PASS
+        value: wYpVOgai7T
+      - key: DB_NAME
+        value: chris183_ytlbre
+      - key: REDIS_HOST
+        sync: false
+      - key: REDIS_PORT
+        sync: false
+      - key: JWT_PRIVATE_KEY_PATH
+        value: ./keys/jwt_private.pem
+      - key: JWT_PUBLIC_KEY_PATH
+        value: ./keys/jwt_public.pem
+      - key: ACCESS_TOKEN_LIFETIME
+        value: 3600
+      - key: REFRESH_TOKEN_LIFETIME
+        value: 7776000
+      - key: BUNNY_READ_KEY
+        value: 74ccf82d-419e-4c3a-86895b3ac145-8e9d-4d95
+      - key: BUNNY_LIBRARY_NAME
+        value: miracoleplus-library
+      - key: BUNNY_ZONE_NAME
+        value: vz-ca4682e2-e0e.b-cdn.net
+      - key: WP_BASE_URL
+        value: https://miracoleplus.com
+      - key: STRIPE_TEST_PK
+        value: pk_test_xxx
+      - key: STRIPE_TEST_SK
+        value: sk_test_xxx
+      - key: RATE_LIMIT_DEVICE_PER_HOUR
+        value: 7
+      - key: LOGIN_MAX_ATTEMPTS
+        value: 7
+      - key: LOGIN_LOCK_MINUTES
+        value: 30
+
+  - type: redis
+    name: miracole-redis
+    ipAllowList: []
+    plan: free
+    maxmemoryPolicy: allkeys-lru
+
