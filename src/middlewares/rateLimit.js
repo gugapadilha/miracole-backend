@@ -25,6 +25,10 @@ const initRedis = async () => {
 // Initialize Redis connection
 initRedis();
 
+// Helper: in development, disable specific limiters
+const isProduction = config.nodeEnv === 'production';
+const noop = (req, res, next) => next();
+
 // Rate limiters
 const loginLimiter = redisClient
   ? new RateLimiterRedis({
@@ -44,13 +48,13 @@ const deviceCodeLimiter = redisClient
   ? new RateLimiterRedis({
       storeClient: redisClient,
       keyPrefix: 'device_code_limit',
-      points: config.rateLimit.devicePerHour,
+      points: config.nodeEnv === 'production' ? config.rateLimit.devicePerHour : 1000,
       duration: 3600,
       blockDuration: 3600,
     })
   : new RateLimiterMemory({
       keyPrefix: 'device_code_limit',
-      points: config.rateLimit.devicePerHour,
+      points: config.nodeEnv === 'production' ? config.rateLimit.devicePerHour : 1000,
       duration: 3600,
     });
 
@@ -58,13 +62,13 @@ const generalLimiter = redisClient
   ? new RateLimiterRedis({
       storeClient: redisClient,
       keyPrefix: 'general_limit',
-      points: 1000, // Number of requests (increased for dev)
+      points: config.nodeEnv === 'production' ? 1000 : 100000, // more generous in dev
       duration: 3600, // Per hour
       blockDuration: 3600, // Block for 1 hour
     })
   : new RateLimiterMemory({
       keyPrefix: 'general_limit',
-      points: 1000, // Number of requests (increased for dev)
+      points: config.nodeEnv === 'production' ? 1000 : 100000, // more generous in dev
       duration: 3600, // Per hour
     });
 
@@ -92,15 +96,40 @@ const rateLimit = (limiter, keyGenerator) => {
 /**
  * Login rate limiting middleware
  */
-const loginRateLimit = rateLimit(loginLimiter, (req) => {
-  // Use IP address for login attempts
-  return req.ip || req.connection.remoteAddress;
-});
+const loginRateLimit = isProduction
+  ? rateLimit(loginLimiter, (req) => {
+      // Use IP address for login attempts
+      return req.ip || req.connection.remoteAddress;
+    })
+  : noop;
 
 /**
  * Device code rate limiting middleware
  */
-const deviceCodeRateLimit = rateLimit(deviceCodeLimiter, (req) => {
+const deviceCodeRateLimit = isProduction
+  ? rateLimit(deviceCodeLimiter, (req) => {
+      // Use user ID if authenticated, otherwise IP
+      const authHeader = req.headers.authorization;
+      if (authHeader) {
+        try {
+          const jwtService = require('../services/jwtService');
+          const token = jwtService.extractTokenFromHeader(authHeader);
+          if (token) {
+            const decoded = jwtService.verifyToken(token);
+            return `user_${decoded.userId}`;
+          }
+        } catch (error) {
+          // Fall back to IP if token is invalid
+        }
+      }
+      return req.ip || req.connection.remoteAddress;
+    })
+  : noop;
+
+/**
+ * General API rate limiting middleware (with whitelist)
+ */
+const generalRateLimitInner = rateLimit(generalLimiter, (req) => {
   // Use user ID if authenticated, otherwise IP
   const authHeader = req.headers.authorization;
   if (authHeader) {
@@ -118,26 +147,16 @@ const deviceCodeRateLimit = rateLimit(deviceCodeLimiter, (req) => {
   return req.ip || req.connection.remoteAddress;
 });
 
-/**
- * General API rate limiting middleware
- */
-const generalRateLimit = rateLimit(generalLimiter, (req) => {
-  // Use user ID if authenticated, otherwise IP
-  const authHeader = req.headers.authorization;
-  if (authHeader) {
-    try {
-      const jwtService = require('../services/jwtService');
-      const token = jwtService.extractTokenFromHeader(authHeader);
-      if (token) {
-        const decoded = jwtService.verifyToken(token);
-        return `user_${decoded.userId}`;
-      }
-    } catch (error) {
-      // Fall back to IP if token is invalid
-    }
+const WHITELIST_PATHS = new Set([
+  '/api/device/poll'
+]);
+
+const generalRateLimit = (req, res, next) => {
+  if (WHITELIST_PATHS.has(req.path)) {
+    return next();
   }
-  return req.ip || req.connection.remoteAddress;
-});
+  return generalRateLimitInner(req, res, next);
+};
 
 /**
  * Reset rate limit for a specific key

@@ -1,11 +1,43 @@
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
+const db = require('../db/knex');
 
 // Import services
 const jwtService = require('../services/jwtService');
 const wordpressService = require('../services/wordpressService');
 const pmproService = require('../services/pmproService');
 const { loginRateLimit } = require('../middlewares/rateLimit');
+const lockout = require('../utils/loginLockout');
+
+function hashToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+async function persistRefreshToken(userId, token) {
+  const expiresAt = jwtService.getTokenExpiration(token);
+  await db('refresh_tokens').insert({
+    user_id: userId,
+    token: hashToken(token),
+    expires_at: expiresAt,
+    revoked: false
+  });
+}
+
+async function revokeRefreshTokenByHash(tokenHash) {
+  await db('refresh_tokens')
+    .where({ token: tokenHash, revoked: false })
+    .update({ revoked: true });
+}
+
+async function isRefreshTokenValid(token) {
+  const tokenHash = hashToken(token);
+  const row = await db('refresh_tokens')
+    .where({ token: tokenHash, revoked: false })
+    .andWhere('expires_at', '>', new Date())
+    .first();
+  return { valid: !!row, row, tokenHash };
+}
 
 /**
  * POST /api/auth/login
@@ -22,10 +54,22 @@ router.post('/login', loginRateLimit, async (req, res) => {
       });
     }
 
+    // Username-based lockout check
+    const lock = await lockout.isLocked(username, 7);
+    if (lock.locked) {
+      res.set('Retry-After', String(lock.retryAfter || 1));
+      return res.status(429).json({
+        error: 'Too Many Attempts',
+        message: 'Account temporarily locked due to failed attempts. Try again later.',
+        retryAfter: lock.retryAfter || 1
+      });
+    }
+
     // Authenticate with WordPress
     const authResult = await wordpressService.authenticateUser(username, password);
     
     if (!authResult || !authResult.token) {
+      try { await lockout.recordFailure(username, 30 * 60); } catch (lfErr) { /* noop */ }
       return res.status(401).json({
         error: 'Authentication failed',
         message: 'Invalid credentials'
@@ -54,6 +98,12 @@ router.post('/login', loginRateLimit, async (req, res) => {
     };
     
     const tokens = jwtService.generateTokenPair(tokenPayload);
+    try {
+      await persistRefreshToken(user.id, tokens.refreshToken);
+    } catch (persistErr) {
+      console.error('Failed to persist refresh token:', persistErr.message);
+    }
+    try { await lockout.reset(username); } catch (rstErr) { /* noop */ }
 
     res.json({
       success: true,
@@ -90,13 +140,22 @@ router.post('/refresh', async (req, res) => {
       });
     }
 
-    // Verify refresh token
+    // Verify refresh token signature and type
     const decoded = jwtService.verifyToken(refresh_token);
     
     if (decoded.type !== 'refresh') {
       return res.status(401).json({
         error: 'Invalid token type',
         message: 'Token is not a refresh token'
+      });
+    }
+
+    // Check revocation/expiration in DB
+    const validity = await isRefreshTokenValid(refresh_token);
+    if (!validity.valid) {
+      return res.status(401).json({
+        error: 'Invalid refresh token',
+        message: 'Token is revoked or expired'
       });
     }
 
@@ -122,6 +181,14 @@ router.post('/refresh', async (req, res) => {
 
     const tokens = jwtService.generateTokenPair(tokenPayload);
 
+    try {
+      // Rotate tokens: persist new token and revoke old
+      await persistRefreshToken(user.id, tokens.refreshToken);
+      await revokeRefreshTokenByHash(validity.tokenHash);
+    } catch (rotErr) {
+      console.error('Refresh token rotation error:', rotErr.message);
+    }
+
     res.json({
       success: true,
       access_token: tokens.accessToken,
@@ -146,19 +213,14 @@ router.post('/logout', async (req, res) => {
     const { refresh_token } = req.body;
 
     if (refresh_token) {
-      // Verify the refresh token to get user info
       try {
         const decoded = jwtService.verifyToken(refresh_token);
-        
         if (decoded.type === 'refresh') {
-          // TODO: Add refresh token to blacklist in Redis
-          // For now, we'll just return success
-          // In production, you'd store the token hash in Redis
-          // and check against it during token validation
+          const tokenHash = hashToken(refresh_token);
+          await revokeRefreshTokenByHash(tokenHash);
         }
-      } catch (error) {
-        // Token is invalid, but we still want to return success
-        // to avoid revealing whether the token was valid or not
+      } catch (e) {
+        // Ignore verification errors; still return success
       }
     }
 

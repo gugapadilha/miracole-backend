@@ -40,9 +40,12 @@ const config = {
 
   // WordPress configuration
   wordpress: {
-    baseUrl: process.env.WP_BASE_URL || 'https://miracoleplus.com',
+    baseUrl: process.env.WORDPRESS_BASE_URL || process.env.WP_BASE_URL || 'https://miracoleplus.com',
     apiKey: process.env.WP_API_KEY || ''
   },
+
+  // Public base URL for this API (staging/production)
+  baseUrl: process.env.BASE_URL || '',
 
   // Stripe configuration
   stripe: {

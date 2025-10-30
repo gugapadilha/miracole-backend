@@ -45,6 +45,7 @@ Two fixes were applied:
 
 1. **Memory-based fallback**: Added fallback to `RateLimiterMemory` when Redis is not available
 2. **Health check exclusion**: Moved health check endpoint before rate limiting middleware
+3. **Development override**: In development, global and per-route limiters are disabled to prevent 429 during local tests. In production they are enabled.
 
 ### Files Modified
 - `src/middlewares/rateLimit.js` - Added memory-based fallback
@@ -84,6 +85,12 @@ Get-Process node | Stop-Process -Force
 # Reinstall dependencies
 & "C:\Program Files\nodejs\npm.cmd" install
 ```
+
+---
+
+## 🔗 Plans Endpoint 502 / Fallback
+
+If `/api/plans` returns 502 locally, WordPress may be blocking `wp-json`. During development a safe fallback list (IDs 2,3,7,8,9) is returned. In production ensure `https://miracoleplus.com/wp-json/pmpro/v1/levels` is reachable.
 
 ---
 

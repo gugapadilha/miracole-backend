@@ -26,10 +26,10 @@ function miracole_device_link_shortcode() {
     ?>
     <div id="mc-link" style="max-width:480px;margin:2rem auto;padding:1rem;border:1px solid #e5e7eb;border-radius:8px;">
         <h2 style="margin:0 0 12px;">Confirm Device Link</h2>
-        <p id="mc-status" style="color:#6b7280;margin:0 0 12px;">Enter the 6-digit code shown on your TV.</p>
+        <p id="mc-status" style="color:#6b7280;margin:0 0 12px;">Enter the 8-character code shown on your TV.</p>
 
         <label style="display:block;margin-bottom:8px;">Device Code</label>
-        <input id="mc-code" type="text" value="<?php echo esc_attr($device_code); ?>" maxlength="6" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:6px;" />
+        <input id="mc-code" type="text" value="<?php echo esc_attr($device_code); ?>" maxlength="8" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:6px;" />
 
         <div style="height:12px"></div>
         <button id="mc-confirm" style="padding:10px 14px;background:#111827;color:#fff;border:none;border-radius:6px;cursor:pointer;">Confirm Link</button>

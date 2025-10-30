@@ -13,7 +13,7 @@ All Phase 1 requirements have been implemented:
 
 ---
 
-## 🎯 What You Need to Do Now
+## 🎯 What You Need to Do Now (to complete Phase 1 goal)
 
 ### Step 1: Create .env File
 
@@ -88,7 +88,7 @@ curl -X POST http://localhost:4000/api/auth/login \
   -d '{"username":"test_user","password":"test_pass"}'
 ```
 
-### Step 4: Deploy to Staging (Optional)
+### Step 4: Deploy to Staging
 
 When ready to deploy:
 
@@ -118,16 +118,21 @@ When ready to deploy:
 - Deployment configuration
 
 ### ⚠️ Needs Testing
-- WordPress JWT plugin integration
-- PMPro membership checking
-- Rate limiting with Redis
-- Login lockout mechanism
+- WordPress JWT plugin integration end-to-end
+- PMPro membership checking in `/api/me`
+- Rate limiting with Redis (production)
+- Login lockout mechanism (count failures only)
 
-### 📋 Future Enhancements
-- Database migrations for devices
-- Credit system implementation
-- Refresh token revocation in DB
-- Stripe payment integration
+### 📋 Remaining Items for Phase 1 Completion
+- Device linking persistence using MySQL (`devices` table): save/expire code, confirm links user, poll returns activated
+- Refresh token revocation: store blacklist (Redis/DB) and enforce in `/auth/refresh`
+- `/link` page on WordPress published and pointing to backend (`MIRACOLE_BACKEND_BASE_URL` in `wp-config.php`)
+- Staging deploy (Render/Railway) + environment variables
+
+### Future Enhancements
+- Credit system implementation, `/redeem` endpoint
+- Playlist/watchlist persistence and counts
+- Stripe integration with PMPro webhooks
 - Video streaming endpoints (Phase 2)
 
 ---

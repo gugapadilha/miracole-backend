@@ -180,6 +180,23 @@ curl -X POST http://localhost:4000/api/device/code \
 
 ---
 
+## 🔗 WordPress /link Page
+
+The repository includes a minimal plugin that powers the `/link` device approval page.
+
+1. Zip and upload `wordpress-plugin/miracole-device-link/` as a plugin and activate it
+2. In `wp-config.php`, set the backend base URL for the shortcode UI:
+   ```php
+   putenv('MIRACOLE_BACKEND_BASE_URL=http://localhost:4000/api');
+   // In staging/production: putenv('MIRACOLE_BACKEND_BASE_URL=https://<your-api-domain>/api');
+   ```
+3. Create a WordPress page with slug `link` and content `[miracole_device_link]`
+4. Visit `https://miracoleplus.com/link?code=123456` to approve a device code
+
+Note: The page logs into the Node API using your WordPress credentials via `/api/auth/login` and then calls `/api/device/confirm`.
+
+---
+
 ## ☁️ Deploy to Staging (Render.com)
 
 ### Step 1: Push to Git Repository
@@ -242,7 +259,7 @@ Render will automatically:
 - ✅ Access token: 60 minutes lifetime
 - ✅ Refresh token: 90 days lifetime
 - ✅ Token rotation on refresh
-- ✅ Rate limiting with Redis
+- ✅ Rate limiting with Redis (disabled in development for easier testing)
 - ✅ Login lockout after 7 failed attempts (30 min)
 - ✅ Helmet.js security headers
 - ✅ CORS protection
@@ -276,6 +293,7 @@ If you see "JWT key not found":
 - Ensure WordPress JWT plugin is installed
 - Verify `WP_BASE_URL` in `.env`
 - Check WordPress API endpoints are accessible
+ - If `/api/plans` returns fallback, WordPress may be restricted locally; this is expected during dev.
 
 ---
 

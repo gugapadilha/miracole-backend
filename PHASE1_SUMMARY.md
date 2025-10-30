@@ -1,6 +1,6 @@
 # Phase 1 Implementation Summary
 
-## ✅ Completed Deliverables
+## ✅ Completed Deliverables (Phase 1 – backend + WP integration)
 
 ### 1. ✅ Environment Configuration
 - Created `.env.example` template with all required variables
@@ -45,9 +45,10 @@
   ```
 
 #### Device Linking
-- ✅ `POST /api/device/code` - Generate temporary device activation code
-- ✅ `POST /api/device/poll` - Poll for device activation status
-- ✅ `POST /api/device/confirm` - Confirm device activation
+- ✅ `POST /api/device/code` - Generate temporary device activation code (rate-limited in production)
+- ✅ `POST /api/device/poll` - Poll for device activation status (stub)
+- ✅ `POST /api/device/confirm` - Confirm device activation (stub)
+- ✅ WordPress `/link` page plugin/shortcode included in repo (`wordpress-plugin/miracole-device-link/`) for approving device codes
 
 ### 5. ✅ Security Features
 - ✅ Helmet.js for security headers
@@ -55,7 +56,7 @@
 - ✅ Rate limiting middleware setup (with rate-limiter-flexible)
 - ✅ Request body size limits (10MB)
 - ✅ Structured error handling
-- ✅ Login lockout system (7 attempts, 30 min lockout)
+- ✅ Login lockout policy prepared (7 attempts / 30 min). In development, per-route and global rate limiters are disabled to ease testing. In production, they are enforced.
 
 ### 6. ✅ Logging
 - ✅ Winston logger configured
@@ -168,10 +169,10 @@ miracole-backend/
 - [ ] Handles expired tokens
 
 ### Device Linking Testing
-- [ ] Generate device code
-- [ ] Poll for activation status
-- [ ] Confirm device activation
-- [ ] Rate limiting on device endpoints
+- [x] Generate device code
+- [x] Poll for activation status (stubbed response)
+- [x] Confirm device activation (stubbed action)
+- [x] Rate limiting on device endpoints (production only)
 
 ### Security Testing
 - [ ] Rate limiting enforced
@@ -198,20 +199,22 @@ miracole-backend/
 
 ---
 
-## 📋 Remaining Tasks
+## 📋 Remaining Tasks (to finish Phase 1 goal)
 
 ### Short-term
-- [ ] Test all endpoints with actual WordPress users
-- [ ] Verify PMPro integration
-- [ ] Implement refresh token revocation
-- [ ] Test rate limiting with Redis
-- [ ] Add input validation middleware
+- [ ] Implement persistent device linking flow using MySQL (`devices` table):
+  - Save generated codes with `expires_at`
+  - `/poll` returns `activated: true` once `/confirm` links user
+  - `/confirm` marks code as linked and associates `user_id`
+- [ ] Implement refresh token revocation (blacklist in Redis/DB) and check on refresh
+- [ ] Enforce login lockout after 7 failed attempts (count failures only)
+- [ ] Staging deploy (Render/Railway) with environment variables
+- [ ] API docs (minimal README section with Postman collection/cURL)
 
 ### Medium-term
-- [ ] Create database migrations for devices
-- [ ] Implement credit system
-- [ ] Add playlist and watchlist counts to database
-- [ ] Implement parental settings
+- [ ] Credits system scaffolding (/redeem) and balance tracking
+- [ ] Playlist/watchlist persistence and counts
+- [ ] Parental settings persistence
 
 ### Long-term (Phase 2)
 - [ ] Video streaming endpoints
@@ -222,13 +225,24 @@ miracole-backend/
 
 ---
 
-## 🐛 Known Issues
+## 🐛 Known Issues / Notes
 
 1. **Stripe Keys**: Placeholder keys need to be replaced
 2. **Refresh Token Revocation**: Not yet implemented in database
-3. **Device Storage**: Device codes stored in memory (need database)
+3. **Device Storage**: Device endpoints currently stubbed (DB persistence pending)
 4. **Credit System**: Placeholder for now (returns 0)
 5. **Playlist/Watchlist Counts**: Placeholder for now (returns 0)
+
+---
+
+## 🧩 WordPress Tasks Required
+
+- [ ] Install the plugin in `wordpress-plugin/miracole-device-link/` and create the `link` page with `[miracole_device_link]`
+- [ ] In `wp-config.php`, set backend base URL for the shortcode:
+  - `putenv('MIRACOLE_BACKEND_BASE_URL=https://<your-api-domain>/api');`
+- [ ] Ensure WordPress JWT auth plugin is active and `https://miracoleplus.com/wp-json/` is reachable
+- [ ] PMPro levels available (IDs: 2,3,7,8,9). Stripe in test mode per PMPro docs: https://www.paidmembershipspro.com/payment-testing/?utm_source=plugin&utm_medium=pmpro-paymentsettings&utm_campaign=documentation&utm_content=testing-your-payment-gateway
+
 
 ---
 

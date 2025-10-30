@@ -8,7 +8,7 @@ A Node.js backend API for the Miracole video streaming platform, built with Expr
 - **User Management**: Integration with WordPress and PMPro for membership management
 - **Video Streaming**: Bunny CDN integration for video delivery
 - **Device Management**: Multi-device registration and activation system
-- **Rate Limiting**: Redis-based rate limiting for API protection
+- **Rate Limiting**: Redis-based rate limiting for API protection (disabled in development for easier testing)
 - **Security**: Helmet.js for security headers, CORS configuration
 - **Logging**: Winston-based structured logging
 - **Database**: MySQL with Knex.js for database operations
@@ -147,12 +147,15 @@ LOGIN_LOCK_MINUTES=30
 - `POST /api/auth/login` - User login
 - `POST /api/auth/refresh` - Refresh access token
 - `POST /api/auth/logout` - User logout
-- `GET /api/auth/me` - Get current user info
+
+### Plans
+- `GET /api/plans` - PMPro plan list (falls back to static IDs 2,3,7,8,9 if WP is unavailable)
 
 ### Device Management
 - `POST /api/device/register` - Register new device
 - `POST /api/device/code` - Generate activation code
-- `POST /api/device/activate` - Activate device
+- `POST /api/device/poll` - Poll device activation status
+- `POST /api/device/confirm` - Confirm device activation
 - `GET /api/device/list` - List user devices
 - `DELETE /api/device/:deviceId` - Remove device
 
@@ -178,6 +181,8 @@ LOGIN_LOCK_MINUTES=30
 - `npm run dev` - Start development server with nodemon
 - `npm test` - Run tests (to be implemented)
 
+Note: In development, global and per-route rate limiters are disabled to avoid 429 during local testing. In production they are enabled with policy from `.env`.
+
 ### Database Migrations
 ```bash
 # Run migrations
@@ -195,7 +200,7 @@ Logs are stored in the `logs/` directory:
 ## Security Features
 
 - **JWT Authentication**: RS256 algorithm with RSA key pairs
-- **Rate Limiting**: Redis-based rate limiting for API endpoints
+- **Rate Limiting**: Redis-based rate limiting for API endpoints (dev disabled)
 - **Security Headers**: Helmet.js for security headers
 - **CORS**: Configurable CORS policy
 - **Input Validation**: Request validation and sanitization

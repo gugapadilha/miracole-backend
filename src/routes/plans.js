@@ -27,13 +27,18 @@ router.get('/', async (req, res) => {
       trial_limit: lvl.trial_limit ?? 0
     }));
 
-    res.json({ success: true, plans: normalized });
+    res.json({ success: true, source: 'wordpress', plans: normalized });
   } catch (error) {
     console.error('Plans fetch error:', error.response?.data || error.message);
-    res.status(502).json({
-      error: 'Bad Gateway',
-      message: 'Failed to fetch plans from WordPress'
-    });
+    // Fallback: static PMPro level IDs (dev convenience)
+    const fallback = [
+      { id: 2, name: 'Monthly', initial_payment: 0, billing_amount: 0, cycle_number: 1, cycle_period: 'Month', billing_limit: null, trial_amount: 0, trial_limit: 0 },
+      { id: 3, name: 'Yearly', initial_payment: 0, billing_amount: 0, cycle_number: 1, cycle_period: 'Year', billing_limit: null, trial_amount: 0, trial_limit: 0 },
+      { id: 7, name: 'Early Explorer', initial_payment: 0, billing_amount: 0, cycle_number: 0, cycle_period: null, billing_limit: null, trial_amount: 0, trial_limit: 0 },
+      { id: 8, name: 'Early Adopter', initial_payment: 0, billing_amount: 0, cycle_number: 0, cycle_period: null, billing_limit: null, trial_amount: 0, trial_limit: 0 },
+      { id: 9, name: 'Lifetime', initial_payment: 0, billing_amount: 0, cycle_number: 0, cycle_period: null, billing_limit: null, trial_amount: 0, trial_limit: 0 }
+    ];
+    res.json({ success: true, source: 'fallback', plans: fallback });
   }
 });
 

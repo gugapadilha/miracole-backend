@@ -47,6 +47,8 @@ LOGIN_LOCK_MINUTES=30
 npm run dev
 ```
 
+In development, rate limiters are disabled to avoid 429 while testing. Production re-enables them automatically.
+
 ### 4. Test It
 ```bash
 curl http://localhost:4000/health
@@ -70,6 +72,11 @@ curl http://localhost:4000/api/me \
 ```
 
 ### POST /api/device/code
+### GET /api/plans
+```bash
+curl http://localhost:4000/api/plans
+```
+If WordPress is unavailable locally, this returns a fallback list with IDs 2,3,7,8,9.
 ```bash
 curl -X POST http://localhost:4000/api/device/code \
   -H "Authorization: Bearer YOUR_TOKEN" \

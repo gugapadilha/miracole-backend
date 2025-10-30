@@ -35,7 +35,10 @@ app.get('/health', (req, res) => {
 });
 
 // Rate limiting middleware (apply to all other routes)
-app.use(generalRateLimit);
+// In development, disable the global limiter to avoid accidental 429s
+if (config.nodeEnv === 'production') {
+  app.use(generalRateLimit);
+}
 
 // API routes
 app.use('/api/auth', require('./routes/auth'));
