@@ -4,11 +4,33 @@ const config = require('../config');
 
 class JWTService {
   constructor() {
-    this.privateKey = fs.readFileSync(config.jwt.privateKeyPath, 'utf8');
-    this.publicKey = fs.readFileSync(config.jwt.publicKeyPath, 'utf8');
-    this.algorithm = config.jwt.algorithm;
-    this.accessTokenLifetime = config.jwt.accessTokenLifetime;
-    this.refreshTokenLifetime = config.jwt.refreshTokenLifetime;
+    // Try to load from environment variables first (for Render deployment)
+    if (process.env.JWT_PRIVATE_KEY && process.env.JWT_PUBLIC_KEY) {
+      // Handle both escaped newlines (\n) and actual newlines
+      this.privateKey = process.env.JWT_PRIVATE_KEY.replace(/\\n/g, '\n');
+      this.publicKey = process.env.JWT_PUBLIC_KEY.replace(/\\n/g, '\n');
+      
+      // Ensure proper line breaks are present
+      if (!this.privateKey.includes('BEGIN PRIVATE KEY')) {
+        console.error('⚠️  JWT_PRIVATE_KEY format may be incorrect');
+      }
+      if (!this.publicKey.includes('BEGIN PUBLIC KEY')) {
+        console.error('⚠️  JWT_PUBLIC_KEY format may be incorrect');
+      }
+    } else {
+      // Fallback: read from files (for local development)
+      try {
+        this.privateKey = fs.readFileSync(config.jwt.privateKeyPath, 'utf8');
+        this.publicKey = fs.readFileSync(config.jwt.publicKeyPath, 'utf8');
+      } catch (error) {
+        console.error('❌ Failed to load JWT keys from files:', error.message);
+        throw new Error('JWT keys not found. Please set JWT_PRIVATE_KEY and JWT_PUBLIC_KEY environment variables or ensure key files exist.');
+      }
+    }
+
+    this.algorithm = process.env.JWT_ALGORITHM || 'RS256';
+    this.accessTokenLifetime = process.env.ACCESS_TOKEN_LIFETIME || 3600;
+    this.refreshTokenLifetime = process.env.REFRESH_TOKEN_LIFETIME || 7776000;
   }
 
   /**
