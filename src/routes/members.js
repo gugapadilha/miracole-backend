@@ -3,27 +3,33 @@ const config = require('../config');
 const router = express.Router();
 
 // Middleware to validate WordPress API key
+// Accepts both X-API-KEY header and Authorization Bearer token
 function validateWPAPIKey(req, res, next) {
-  const authHeader = req.headers.authorization;
-  const providedKey = authHeader && authHeader.startsWith('Bearer ')
-    ? authHeader.substring(7)
+  // Get expected key from environment (remove quotes if present, trim whitespace)
+  const envKey = (config.wordpress.apiKey || '').replace(/"/g, '').trim();
+  
+  // Get provided key from headers (try X-API-KEY first, then Authorization Bearer)
+  const headerApiKey = req.get('X-API-KEY') || req.get('x-api-key');
+  const authHeader = req.headers.authorization || req.get('authorization');
+  const bearerKey = authHeader && authHeader.startsWith('Bearer ')
+    ? authHeader.substring(7).trim()
     : null;
+  
+  const providedKey = (headerApiKey || bearerKey || '').trim();
 
-  const expectedKey = config.wordpress.apiKey;
-
-  if (!expectedKey) {
-    console.warn('[WP_SYNC] WP_API_KEY not configured');
+  if (!envKey) {
+    console.warn('[WP_SYNC] WP_API_KEY not configured on server');
     return res.status(500).json({
-      error: 'Server configuration error',
-      message: 'WordPress API key not configured'
+      error: 'server_error',
+      message: 'WP_API_KEY not configured on server'
     });
   }
 
-  if (!providedKey || providedKey !== expectedKey) {
-    console.warn('[WP_SYNC] Invalid API key attempt');
+  if (!providedKey || providedKey !== envKey) {
+    console.warn('[WP_SYNC] Invalid or missing API key. Expected:', envKey.substring(0, 10) + '..., Got:', providedKey ? providedKey.substring(0, 10) + '...' : 'null');
     return res.status(401).json({
-      error: 'Unauthorized',
-      message: 'Invalid API key'
+      error: 'unauthorized',
+      message: 'Invalid or missing API key'
     });
   }
 
@@ -93,48 +99,57 @@ router.post('/sync', validateWPAPIKey, async (req, res) => {
 
 /**
  * POST /api/members/webhooks/membership
- * Alternative webhook endpoint (alias for /api/members/sync)
+ * Alternative webhook endpoint (same handler as /sync)
  */
 router.post('/webhooks/membership', validateWPAPIKey, async (req, res) => {
-  // Use the same handler as /sync
-  const {
-    user_id,
-    username,
-    email,
-    level_id,
-    level_name,
-    old_level_id,
-    action
-  } = req.body;
+  // Use the same logic as /sync endpoint
+  try {
+    const {
+      user_id,
+      username,
+      email,
+      level_id,
+      level_name,
+      old_level_id,
+      action
+    } = req.body;
 
-  console.log('[WP_SYNC] Received membership update from WordPress (webhook endpoint)');
-  console.log('[WP_SYNC] Data:', {
-    user_id,
-    username,
-    email,
-    level_id,
-    level_name,
-    old_level_id,
-    action
-  });
+    console.log('[WP_SYNC] Received membership update from WordPress (webhook endpoint)');
+    console.log('[WP_SYNC] Data:', {
+      user_id,
+      username,
+      email,
+      level_id,
+      level_name,
+      old_level_id,
+      action
+    });
 
-  if (!user_id || !action) {
-    return res.status(400).json({
-      error: 'Missing required fields',
-      message: 'user_id and action are required'
+    // Validate required fields
+    if (!user_id || !action) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'user_id and action are required'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Membership sync received',
+      data: {
+        user_id,
+        level_id,
+        action,
+        synced_at: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('[WP_SYNC] Error processing membership sync:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: 'Failed to process membership sync'
     });
   }
-
-  res.status(200).json({
-    success: true,
-    message: 'Membership sync received',
-    data: {
-      user_id,
-      level_id,
-      action,
-      synced_at: new Date().toISOString()
-    }
-  });
 });
 
 /**

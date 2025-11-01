@@ -57,13 +57,15 @@ async function testWebhookEndpoint() {
   };
 
   try {
+    // Try with X-API-KEY first (as recommended by GPT-5)
     const response = await axios.post(
       `${BACKEND_URL}/api/members/sync`,
       testData,
       {
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${WP_API_KEY}`
+          'X-API-KEY': WP_API_KEY,
+          'Authorization': `Bearer ${WP_API_KEY}` // Also send Bearer for compatibility
         },
         timeout: 10000
       }
@@ -100,8 +102,8 @@ async function testWebhookEndpoint() {
 
 async function testAlternativeWebhookEndpoint() {
   console.log('\n' + '='.repeat(60));
-  console.log('Testing Alternative Webhook Endpoint (/api/webhooks/membership)\n');
-  console.log(`URL: ${BACKEND_URL}/api/webhooks/membership\n`);
+  console.log('Testing Alternative Webhook Endpoint (/api/members/webhooks/membership)\n');
+  console.log(`URL: ${BACKEND_URL}/api/members/webhooks/membership\n`);
 
   const testData = {
     user_id: 456,
@@ -115,11 +117,12 @@ async function testAlternativeWebhookEndpoint() {
 
   try {
     const response = await axios.post(
-      `${BACKEND_URL}/api/webhooks/membership`,
+      `${BACKEND_URL}/api/members/webhooks/membership`,
       testData,
       {
         headers: {
           'Content-Type': 'application/json',
+          'X-API-KEY': WP_API_KEY,
           'Authorization': `Bearer ${WP_API_KEY}`
         },
         timeout: 10000
