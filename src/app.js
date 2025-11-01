@@ -28,7 +28,7 @@ app.use(requestLogger);
 // Health check endpoint (before rate limiting)
 app.get('/health', (req, res) => {
   res.status(200).json({
-    status: 'OK',
+    status: 'ok',
     timestamp: new Date().toISOString(),
     environment: config.nodeEnv
   });
@@ -46,6 +46,7 @@ app.use('/api/device', require('./routes/device'));
 app.use('/api/videos', require('./routes/videos'));
 app.use('/api/me', require('./routes/me'));
 app.use('/api/plans', require('./routes/plans'));
+app.use('/api/members', require('./routes/members'));
 
 // Error handling middleware
 app.use(errorLogger);

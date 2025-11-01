@@ -258,11 +258,15 @@ class MiraCole_Backend_Connector {
             'action' => 'membership_change'
         );
         
-        // Send to backend (you can create a webhook endpoint for this)
-        // $this->send_to_backend('/api/webhooks/membership', 'POST', $data);
+        // Send to backend webhook endpoint
+        $result = $this->send_to_backend('/api/members/sync', 'POST', $data);
         
-        // For now, just log it
-        error_log('MiraCole: Membership change - User ID: ' . $user_id . ', Level: ' . $level_id);
+        if ($result && $result['status'] === 200) {
+            error_log('[WP_SYNC] Successfully synced membership to backend - User ID: ' . $user_id . ', Level: ' . $level_id);
+        } else {
+            $error_msg = isset($result['body']['message']) ? $result['body']['message'] : 'Unknown error';
+            error_log('[WP_SYNC] Failed to sync membership to backend - User ID: ' . $user_id . ', Error: ' . $error_msg);
+        }
     }
     
     /**
