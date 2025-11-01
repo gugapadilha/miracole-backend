@@ -90,3 +90,6 @@ keys/jwt_private.pem
 tmp/
 temp/
 
+# Generated WordPress plugin ZIP
+wordpress-plugin/*.zip
+

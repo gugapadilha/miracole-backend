@@ -9,6 +9,7 @@
     "generate-keys": "node scripts/generate-keys.js",
     "migrate": "knex migrate:latest",
     "migrate:rollback": "knex migrate:rollback",
+    "create-plugin-zip": "node scripts/create-plugin-zip.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
