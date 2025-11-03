@@ -2,10 +2,11 @@ const app = require('./app');
 const config = require('./config');
 
 // Start the server
-const server = app.listen(config.port, () => {
+// Listen on 0.0.0.0 to allow external connections (required for Render)
+const server = app.listen(config.port, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${config.port}`);
   console.log(`📱 Environment: ${config.nodeEnv}`);
-  console.log(`🔗 Health check: http://localhost:${config.port}/health`);
+  console.log(`🔗 Health check: http://0.0.0.0:${config.port}/health`);
 });
 
 // Graceful shutdown
