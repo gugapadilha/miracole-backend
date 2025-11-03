@@ -1,25 +1,73 @@
 const axios = require('axios');
 const config = require('../config');
 
+// Simple in-memory cache
+const cache = new Map();
+const CACHE_TTL = 300000; // 5 minutes
+
 class PMProService {
   constructor() {
     this.baseUrl = config.wordpress.baseUrl;
     this.apiKey = config.wordpress.apiKey;
+    this.timeout = 5000; // 5 seconds timeout
+  }
+  
+  /**
+   * Get cached value or set it
+   */
+  _getCache(key) {
+    const item = cache.get(key);
+    if (item && (Date.now() - item.timestamp) < CACHE_TTL) {
+      return item.value;
+    }
+    if (item) {
+      cache.delete(key);
+    }
+    return null;
+  }
+  
+  /**
+   * Set cache value
+   */
+  _setCache(key, value) {
+    cache.set(key, {
+      value,
+      timestamp: Date.now()
+    });
+  }
+  
+  /**
+   * Create axios instance with optimized settings
+   */
+  _createAxiosInstance() {
+    return axios.create({
+      timeout: this.timeout,
+      headers: this.apiKey ? { 'Authorization': `Bearer ${this.apiKey}` } : {}
+    });
   }
 
   /**
-   * Get PMPro member information
+   * Get PMPro member information (with caching)
    * @param {string} userId - WordPress user ID
    * @returns {Object|null} Member data or null
    */
   async getMemberInfo(userId) {
+    const cacheKey = `pmpro_member_${userId}`;
+    const cached = this._getCache(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    
     try {
-      const response = await axios.get(
-        `${this.baseUrl}/wp-json/pmpro/v1/members/${userId}`,
-        {
-          headers: this.apiKey ? { 'Authorization': `Bearer ${this.apiKey}` } : {}
-        }
+      const axiosInstance = this._createAxiosInstance();
+      const response = await axiosInstance.get(
+        `${this.baseUrl}/wp-json/pmpro/v1/members/${userId}`
       );
+      
+      if (response.data) {
+        this._setCache(cacheKey, response.data);
+      }
+      
       return response.data;
     } catch (error) {
       console.error('PMPro API Error:', error.message);

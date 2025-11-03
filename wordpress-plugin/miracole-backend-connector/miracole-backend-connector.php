@@ -36,8 +36,11 @@ class MiraCole_Backend_Connector {
         // REST API endpoint to sync with backend
         add_action('rest_api_init', array($this, 'register_rest_routes'));
         
-        // Hook into PMPro membership changes
-        add_action('pmpro_after_change_membership_level', array($this, 'sync_membership_to_backend'), 10, 3);
+        // Hook into PMPro membership changes (with lower priority to avoid conflicts)
+        add_action('pmpro_after_change_membership_level', array($this, 'sync_membership_to_backend'), 20, 3);
+        
+        // Async sync handler
+        add_action('miracole_async_sync', array($this, 'handle_async_sync'), 10, 3);
     }
     
     /**
@@ -163,13 +166,14 @@ class MiraCole_Backend_Connector {
     }
     
     /**
-     * Test connection to backend
+     * Test connection to backend (optimized with shorter timeout)
      */
     private function test_connection($url, $key) {
         $response = wp_remote_get($url . '/health', array(
-            'timeout' => 10,
+            'timeout' => 5, // Reduced from 10 to 5 seconds
             'headers' => array(
-                'Authorization' => 'Bearer ' . $key
+                'Authorization' => 'Bearer ' . $key,
+                'X-API-KEY' => $key // Also send as X-API-KEY for compatibility
             )
         ));
         
@@ -197,21 +201,36 @@ class MiraCole_Backend_Connector {
     }
     
     /**
-     * Send request to backend
+     * Send request to backend (optimized with shorter timeout and retry limit)
      */
-    public function send_to_backend($endpoint, $method = 'GET', $data = null) {
+    public function send_to_backend($endpoint, $method = 'GET', $data = null, $retry_count = 0) {
         $backend_url = get_option('miracole_backend_url', $this->backend_url);
         $api_key = get_option('miracole_api_key', $this->api_key);
         
         $url = rtrim($backend_url, '/') . '/' . ltrim($endpoint, '/');
         
+        // Create cache key to prevent duplicate requests
+        $cache_key = 'miracole_request_' . md5($url . $method . serialize($data));
+        
+        // Check if same request was made recently (within 5 seconds)
+        $last_request = get_transient($cache_key);
+        if ($last_request && (time() - $last_request) < 5) {
+            error_log('[WP_SYNC] Duplicate request prevented - ' . $endpoint);
+            return false;
+        }
+        
+        // Set transient to prevent duplicate requests
+        set_transient($cache_key, time(), 10);
+        
         $args = array(
             'method' => $method,
-            'timeout' => 15,
+            'timeout' => 5, // Reduced from 15 to 5 seconds
             'headers' => array(
                 'Content-Type' => 'application/json',
-                'Authorization' => 'Bearer ' . $api_key
-            )
+                'Authorization' => 'Bearer ' . $api_key,
+                'X-API-KEY' => $api_key // Also send as X-API-KEY for compatibility
+            ),
+            'blocking' => true, // Keep blocking but with shorter timeout
         );
         
         if ($data !== null) {
@@ -221,12 +240,24 @@ class MiraCole_Backend_Connector {
         $response = wp_remote_request($url, $args);
         
         if (is_wp_error($response)) {
-            error_log('MiraCole Backend Error: ' . $response->get_error_message());
+            $error_message = $response->get_error_message();
+            error_log('MiraCole Backend Error: ' . $error_message);
+            
+            // Retry once if timeout and haven't retried yet (without blocking sleep)
+            if ($retry_count < 1 && strpos($error_message, 'timeout') !== false) {
+                error_log('[WP_SYNC] Retrying request after timeout - Attempt ' . ($retry_count + 1));
+                // Immediate retry - cache will prevent true duplicates
+                return $this->send_to_backend($endpoint, $method, $data, $retry_count + 1);
+            }
+            
             return false;
         }
         
         $body = wp_remote_retrieve_body($response);
         $status = wp_remote_retrieve_response_code($response);
+        
+        // Clear transient on success
+        delete_transient($cache_key);
         
         return array(
             'status' => $status,
@@ -235,17 +266,49 @@ class MiraCole_Backend_Connector {
     }
     
     /**
-     * Sync membership changes to backend
+     * Sync membership changes to backend (optimized with async scheduling)
      */
     public function sync_membership_to_backend($level_id, $user_id, $old_level_id) {
+        // Prevent duplicate syncs for the same user/level combination
+        $sync_key = 'miracole_sync_' . $user_id . '_' . $level_id . '_' . $old_level_id;
+        $last_sync = get_transient($sync_key);
+        
+        if ($last_sync && (time() - $last_sync) < 60) {
+            error_log('[WP_SYNC] Duplicate sync prevented for User ID: ' . $user_id);
+            return;
+        }
+        
+        // Mark sync as in progress
+        set_transient($sync_key, time(), 300); // 5 minutes
+        
+        // Schedule async processing to avoid blocking page load
+        // Use wp_schedule_single_event if available, otherwise process immediately
+        if (function_exists('wp_schedule_single_event')) {
+            wp_schedule_single_event(time() + 2, 'miracole_async_sync', array($level_id, $user_id, $old_level_id));
+        } else {
+            // Fallback: process immediately but in a non-blocking way
+            $this->process_sync($level_id, $user_id, $old_level_id);
+        }
+    }
+    
+    /**
+     * Process membership sync (called async or immediately)
+     */
+    private function process_sync($level_id, $user_id, $old_level_id) {
         // Get user data
         $user = get_userdata($user_id);
         if (!$user) {
             return;
         }
         
-        // Get level information
-        $level = pmpro_getLevel($level_id);
+        // Get level information with caching
+        $cache_key = 'pmpro_level_' . $level_id;
+        $level = get_transient($cache_key);
+        
+        if ($level === false) {
+            $level = pmpro_getLevel($level_id);
+            set_transient($cache_key, $level, 3600); // Cache for 1 hour
+        }
         
         // Prepare data to send
         $data = array(
@@ -265,7 +328,8 @@ class MiraCole_Backend_Connector {
             error_log('[WP_SYNC] Successfully synced membership to backend - User ID: ' . $user_id . ', Level: ' . $level_id);
         } else {
             $error_msg = isset($result['body']['message']) ? $result['body']['message'] : 'Unknown error';
-            error_log('[WP_SYNC] Failed to sync membership to backend - User ID: ' . $user_id . ', Error: ' . $error_msg);
+            $status = isset($result['status']) ? $result['status'] : 'N/A';
+            error_log('[WP_SYNC] Failed to sync membership to backend - User ID: ' . $user_id . ', Status: ' . $status . ', Error: ' . $error_msg);
         }
     }
     
@@ -280,6 +344,13 @@ class MiraCole_Backend_Connector {
                 return current_user_can('manage_options');
             }
         ));
+    }
+    
+    /**
+     * Handle async sync (called by wp_schedule_single_event)
+     */
+    public function handle_async_sync($level_id, $user_id, $old_level_id) {
+        $this->process_sync($level_id, $user_id, $old_level_id);
     }
     
     /**
