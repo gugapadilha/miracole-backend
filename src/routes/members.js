@@ -52,8 +52,8 @@ function validateWPAPIKey(req, res, next) {
   next();
 }
 
-// POST /api/members/sync (with throttling to prevent duplicate requests)
-router.post('/sync', validateWPAPIKey, throttleRequest, async (req, res) => {
+// Handler function to reuse
+async function handleSync(req, res) {
   try {
     const payload = req.body || {};
     
@@ -73,14 +73,13 @@ router.post('/sync', validateWPAPIKey, throttleRequest, async (req, res) => {
     console.error('[WP_SYNC] error', err);
     return res.status(500).json({ error: 'server_error', message: 'Failed to process membership sync' });
   }
-});
+}
+
+// POST /api/members/sync (with throttling to prevent duplicate requests)
+router.post('/sync', validateWPAPIKey, throttleRequest, handleSync);
 
 // Alias endpoint (compatível com plugin antigo)
-router.post('/webhooks/membership', validateWPAPIKey, (req, res) => {
-  // Redireciona para handler /sync
-  req.url = '/sync';
-  return router.handle(req, res);
-});
+router.post('/webhooks/membership', validateWPAPIKey, throttleRequest, handleSync);
 
 
 module.exports = router;
