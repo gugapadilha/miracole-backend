@@ -2,12 +2,17 @@
 /**
  * Plugin Name: MiraCole REST Monitor
  * Description: Verifica rotas REST do PMPro e adiciona fallback se necessário. Exibe logs no console e error_log.
- * Version: 1.1.0
+ * Version: 1.1.1
  * Author: MiraCole+ DevOps
  */
 
 if (!defined('ABSPATH')) {
     exit;
+}
+
+// Prevent this plugin from running on the frontend (performance fix)
+if (!is_admin() && !defined('REST_REQUEST')) {
+    return;
 }
 
 class MiraCole_REST_Monitor {
