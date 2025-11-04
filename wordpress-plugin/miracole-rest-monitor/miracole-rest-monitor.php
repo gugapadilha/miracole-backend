@@ -16,8 +16,11 @@ class MiraCole_REST_Monitor {
     private $cache_ttl = 300; // 5 minutes
     
     public function __construct() {
-        // Run checks on REST API init
-        add_action('rest_api_init', array($this, 'check_routes'), 5);
+        // Register fallback route immediately (before checking)
+        add_action('rest_api_init', array($this, 'register_fallback_route'), 10);
+        
+        // Check routes status (for logging)
+        add_action('rest_api_init', array($this, 'check_routes_status'), 20);
         
         // Add admin notice
         add_action('admin_notices', array($this, 'admin_notice'));
@@ -27,51 +30,55 @@ class MiraCole_REST_Monitor {
     }
     
     /**
-     * Check REST routes and create fallback if needed
+     * Register fallback route immediately
      */
-    public function check_routes() {
+    public function register_fallback_route() {
+        // Check if route already exists
+        $routes = rest_get_server()->get_routes();
+        $route_exists = false;
+        
+        // Check various possible route formats
+        foreach ($routes as $route => $handlers) {
+            if (strpos($route, 'pmpro/v1/levels') !== false) {
+                $route_exists = true;
+                error_log('[MiraCole REST Monitor] ✅ PMPro route already exists: ' . $route);
+                break;
+            }
+        }
+        
+        // If route doesn't exist, register our fallback
+        if (!$route_exists) {
+            register_rest_route('pmpro/v1', '/levels', array(
+                'methods' => 'GET',
+                'callback' => array($this, 'pmpro_levels_fallback'),
+                'permission_callback' => '__return_true'
+            ));
+            
+            error_log('[MiraCole REST Monitor] ✅ Fallback route /pmpro/v1/levels registered successfully');
+        }
+    }
+    
+    /**
+     * Check routes status (for logging and admin notices)
+     */
+    public function check_routes_status() {
         // Check cache to avoid repeated checks
         $cached = get_transient($this->cache_key);
-        if ($cached) {
+        if ($cached && (time() - $cached['timestamp']) < $this->cache_ttl) {
             return;
         }
         
-        // Routes to check
-        $routes_to_check = array(
-            'pmpro/v1/levels',
-            'miracole/v1/levels'
-        );
-        
+        // Check routes directly from REST server (no HTTP request)
+        $routes = rest_get_server()->get_routes();
         $found_routes = array();
         
-        foreach ($routes_to_check as $route) {
-            $url = home_url('/wp-json/' . $route);
-            
-            $response = wp_remote_get($url, array(
-                'timeout' => 3,
-                'sslverify' => false // Allow self-signed certs in dev
-            ));
-            
-            if (is_wp_error($response)) {
-                error_log('[MiraCole REST Monitor] Error checking route ' . $route . ': ' . $response->get_error_message());
-                continue;
+        // Check if PMPro route exists
+        foreach ($routes as $route => $handlers) {
+            if (strpos($route, 'pmpro/v1/levels') !== false) {
+                $found_routes[] = 'pmpro/v1/levels';
+                error_log('[MiraCole REST Monitor] ✅ Route found in REST server: ' . $route);
+                break;
             }
-            
-            $body = wp_remote_retrieve_body($response);
-            $status_code = wp_remote_retrieve_response_code($response);
-            
-            // Check if route exists (not 404)
-            if ($status_code === 200 && strpos($body, 'rest_no_route') === false && !empty($body)) {
-                $found_routes[] = $route;
-                error_log('[MiraCole REST Monitor] ✅ Route found: /wp-json/' . $route);
-            } else {
-                error_log('[MiraCole REST Monitor] ❌ Route not found: /wp-json/' . $route . ' (Status: ' . $status_code . ')');
-            }
-        }
-        
-        // If PMPro route doesn't exist, create fallback
-        if (!in_array('pmpro/v1/levels', $found_routes)) {
-            $this->create_pmpro_fallback();
         }
         
         // Store results in cache
@@ -81,28 +88,11 @@ class MiraCole_REST_Monitor {
         ), $this->cache_ttl);
         
         // Log summary
-        error_log('[MiraCole REST Monitor] Summary - Found routes: ' . implode(', ', $found_routes ?: array('none')));
-    }
-    
-    /**
-     * Create fallback route for PMPro levels
-     */
-    private function create_pmpro_fallback() {
-        // Check if route already registered (double-check)
-        $routes = rest_get_server()->get_routes();
-        if (isset($routes['/pmpro/v1/levels'])) {
-            error_log('[MiraCole REST Monitor] PMPro route already exists, skipping fallback');
-            return;
+        if (empty($found_routes)) {
+            error_log('[MiraCole REST Monitor] ⚠️ PMPro route not found, using fallback');
+        } else {
+            error_log('[MiraCole REST Monitor] Summary - Found routes: ' . implode(', ', $found_routes));
         }
-        
-        // Register fallback route
-        register_rest_route('pmpro/v1', '/levels', array(
-            'methods' => 'GET',
-            'callback' => array($this, 'pmpro_levels_fallback'),
-            'permission_callback' => '__return_true'
-        ));
-        
-        error_log('[MiraCole REST Monitor] ✅ Fallback route /pmpro/v1/levels created successfully');
     }
     
     /**
