@@ -24,6 +24,15 @@ add_action('plugins_loaded', function () {
 
     // Register REST route only on REST API calls
     add_action('rest_api_init', function () {
+        // Register ping endpoint for testing
+        register_rest_route('miracole/v1', '/ping', [
+            'methods' => 'GET',
+            'callback' => function () {
+                return ['status' => 'ok'];
+            },
+            'permission_callback' => '__return_true'
+        ]);
+
         $routes = rest_get_server()->get_routes();
         $route_exists = false;
 
