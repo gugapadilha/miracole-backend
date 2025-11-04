@@ -66,7 +66,7 @@ function miracole_device_link_shortcode() {
           const password = $('mc-pass').value;
           if(!username || !password){ setStatus('Enter username and password.', '#b91c1c'); return; }
           setStatus('Signing in...', '#6b7280');
-          const res = await fetch(backend + '/auth/login', {
+          const res = await fetch(backend + '/api/auth/login', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
           });
@@ -84,7 +84,7 @@ function miracole_device_link_shortcode() {
           const token = localStorage.getItem('mc_access');
           if(!token){ setStatus('Sign in first, then confirm the device.', '#b91c1c'); return; }
           setStatus('Confirming device...', '#6b7280');
-          const res = await fetch(backend + '/device/confirm', {
+          const res = await fetch(backend + '/api/device/confirm', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

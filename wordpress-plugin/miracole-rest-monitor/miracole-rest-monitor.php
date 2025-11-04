@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MiraCole REST Monitor
  * Description: Verifica rotas REST do PMPro e adiciona fallback se necessário. Exibe logs no console e error_log.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: MiraCole+ DevOps
  */
 
@@ -13,40 +13,40 @@ if (!defined('ABSPATH')) {
 class MiraCole_REST_Monitor {
     
     private $cache_key = 'miracole_rest_check_cache';
-    private $cache_ttl = 300; // 5 minutes
+    private $cache_ttl = 3600; // 1 hour (reduced from 5 minutes to minimize checks)
     
     public function __construct() {
-        // Register fallback route immediately (before checking)
+        // Register fallback route immediately (lightweight, no DB checks)
         add_action('rest_api_init', array($this, 'register_fallback_route'), 10);
         
-        // Check routes status (for logging)
-        add_action('rest_api_init', array($this, 'check_routes_status'), 20);
+        // Only check routes status on admin page loads (not on every REST request)
+        add_action('admin_init', array($this, 'check_routes_status'), 10);
         
         // Add admin notice
         add_action('admin_notices', array($this, 'admin_notice'));
         
-        // Log to console in admin
+        // Log to console in admin (only on admin pages)
         add_action('admin_footer', array($this, 'admin_console_log'));
     }
     
     /**
-     * Register fallback route immediately
+     * Register fallback route immediately (lightweight check only)
      */
     public function register_fallback_route() {
-        // Check if route already exists
+        // Lightweight check - only register if route doesn't exist
+        // This is called on REST init but uses minimal resources
         $routes = rest_get_server()->get_routes();
         $route_exists = false;
         
-        // Check various possible route formats
+        // Quick check for PMPro route
         foreach ($routes as $route => $handlers) {
             if (strpos($route, 'pmpro/v1/levels') !== false) {
                 $route_exists = true;
-                error_log('[MiraCole REST Monitor] ✅ PMPro route already exists: ' . $route);
-                break;
+                break; // Exit early once found
             }
         }
         
-        // If route doesn't exist, register our fallback
+        // Only register if route doesn't exist (one-time operation)
         if (!$route_exists) {
             register_rest_route('pmpro/v1', '/levels', array(
                 'methods' => 'GET',
@@ -54,18 +54,23 @@ class MiraCole_REST_Monitor {
                 'permission_callback' => '__return_true'
             ));
             
-            error_log('[MiraCole REST Monitor] ✅ Fallback route /pmpro/v1/levels registered successfully');
+            // Only log once per hour to reduce error_log noise
+            $log_key = 'miracole_rest_fallback_logged';
+            if (!get_transient($log_key)) {
+                error_log('[MiraCole REST Monitor] Fallback route /pmpro/v1/levels registered');
+                set_transient($log_key, true, 3600); // Log once per hour
+            }
         }
     }
     
     /**
-     * Check routes status (for logging and admin notices)
+     * Check routes status (only called on admin page loads, not on every REST request)
      */
     public function check_routes_status() {
-        // Check cache to avoid repeated checks
+        // Check cache first - return early if recent check exists
         $cached = get_transient($this->cache_key);
         if ($cached && (time() - $cached['timestamp']) < $this->cache_ttl) {
-            return;
+            return; // Use cached result
         }
         
         // Check routes directly from REST server (no HTTP request)
@@ -76,22 +81,21 @@ class MiraCole_REST_Monitor {
         foreach ($routes as $route => $handlers) {
             if (strpos($route, 'pmpro/v1/levels') !== false) {
                 $found_routes[] = 'pmpro/v1/levels';
-                error_log('[MiraCole REST Monitor] ✅ Route found in REST server: ' . $route);
-                break;
+                break; // Exit early once found
             }
         }
         
-        // Store results in cache
+        // Store results in cache (1 hour TTL)
         set_transient($this->cache_key, array(
             'found' => $found_routes,
             'timestamp' => time()
         ), $this->cache_ttl);
         
-        // Log summary
+        // Only log summary once per hour
         if (empty($found_routes)) {
-            error_log('[MiraCole REST Monitor] ⚠️ PMPro route not found, using fallback');
+            error_log('[MiraCole REST Monitor] PMPro route not found, using fallback');
         } else {
-            error_log('[MiraCole REST Monitor] Summary - Found routes: ' . implode(', ', $found_routes));
+            error_log('[MiraCole REST Monitor] Route check complete - PMPro route found');
         }
     }
     
