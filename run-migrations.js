@@ -11,12 +11,24 @@ const knex = require('knex');
 const path = require('path');
 require('dotenv').config();
 
+// Detect database type by port (5432 = PostgreSQL, 3306 = MySQL)
+const dbPort = parseInt(process.env.DB_PORT || '3306');
+const isPostgreSQL = dbPort === 5432;
+const dbClient = isPostgreSQL ? 'pg' : 'mysql2';
+
 // Database configuration
 const dbConfig = {
-  client: 'mysql2',
-  connection: {
+  client: dbClient,
+  connection: isPostgreSQL ? {
     host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 3306,
+    port: dbPort,
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASS || '',
+    database: process.env.DB_NAME || 'miracole_api',
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  } : {
+    host: process.env.DB_HOST || 'localhost',
+    port: dbPort,
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASS || '',
     database: process.env.DB_NAME || 'miracole_api',
@@ -36,19 +48,23 @@ async function runMigrations() {
   console.log('🚀 Starting MiraCole+ database migrations...\n');
   
   try {
-    // Create database if it doesn't exist
-    const dbWithoutDatabase = knex({
-      ...dbConfig,
-      connection: {
-        ...dbConfig.connection,
-        database: undefined
-      }
-    });
-    
-    await dbWithoutDatabase.raw(`CREATE DATABASE IF NOT EXISTS \`${dbConfig.connection.database}\``);
-    console.log(`✅ Database '${dbConfig.connection.database}' created/verified`);
-    
-    await dbWithoutDatabase.destroy();
+    // Create database if it doesn't exist (MySQL only, PostgreSQL database must exist)
+    if (!isPostgreSQL) {
+      const dbWithoutDatabase = knex({
+        ...dbConfig,
+        connection: {
+          ...dbConfig.connection,
+          database: undefined
+        }
+      });
+      
+      await dbWithoutDatabase.raw(`CREATE DATABASE IF NOT EXISTS \`${dbConfig.connection.database}\``);
+      console.log(`✅ Database '${dbConfig.connection.database}' created/verified`);
+      
+      await dbWithoutDatabase.destroy();
+    } else {
+      console.log(`✅ Using PostgreSQL database: ${dbConfig.connection.database}`);
+    }
     
     // Connect to the specific database
     const db = knex(dbConfig);
@@ -72,11 +88,22 @@ async function runMigrations() {
     
     // Show created tables
     console.log('\n📋 Created tables:');
-    const tables = await db.raw('SHOW TABLES');
-    tables[0].forEach(table => {
-      const tableName = Object.values(table)[0];
-      console.log(`   - ${tableName}`);
-    });
+    if (isPostgreSQL) {
+      const tables = await db.raw(`
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public'
+      `);
+      tables.rows.forEach(row => {
+        console.log(`   - ${row.table_name}`);
+      });
+    } else {
+      const tables = await db.raw('SHOW TABLES');
+      tables[0].forEach(table => {
+        const tableName = Object.values(table)[0];
+        console.log(`   - ${tableName}`);
+      });
+    }
     
     await db.destroy();
     console.log('\n🎉 Database setup completed successfully!');
