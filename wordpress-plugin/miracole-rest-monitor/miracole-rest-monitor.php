@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: MiraCole REST Monitor
- * Description: Monitora as rotas REST do PMPro e cria fallback automático se necessário. Loga no console e no error_log.
+ * Description: Verifica rotas REST do PMPro e adiciona fallback se necessário. Exibe logs no console e error_log.
  * Version: 1.1.0
  * Author: MiraCole+ DevOps
  */
@@ -11,175 +11,333 @@ if (!defined('ABSPATH')) {
 }
 
 class MiraCole_REST_Monitor {
-
+    
     private $cache_key = 'miracole_rest_check_cache';
-    private $cache_ttl = 300; // 5 minutos
-
+    private $cache_ttl = 3600; // 1 hour (increased from 5 minutes)
+    private $route_registered_key = 'miracole_rest_route_registered';
+    private static $route_registered = false; // Static flag to prevent multiple registrations per request
+    
     public function __construct() {
-        // Hook principal — garante que a verificação ocorra logo após o carregamento das rotas
-        add_action('rest_api_init', array($this, 'maybe_check_routes'), 20);
-
-        // Avisos no painel
+        // Register fallback route only once during init (not on every REST request)
+        add_action('init', array($this, 'register_fallback_route_once'), 5);
+        
+        // Check routes status only once on init (cached)
+        add_action('init', array($this, 'check_routes_status_once'), 10);
+        
+        // Add admin notice
         add_action('admin_notices', array($this, 'admin_notice'));
-
-        // Log no console do navegador
+        
+        // Log to console in admin
         add_action('admin_footer', array($this, 'admin_console_log'));
     }
-
+    
     /**
-     * Executa a checagem apenas se não estiver em cache
+     * Register fallback route only once (optimized)
      */
-    public function maybe_check_routes() {
-        $cached = get_transient($this->cache_key);
-        if ($cached) {
+    public function register_fallback_route_once() {
+        // Prevent multiple registrations in the same request
+        if (self::$route_registered) {
             return;
         }
-        $this->check_routes();
+        
+        // Check if we've already registered this route (persistent cache)
+        $already_registered = get_option($this->route_registered_key, false);
+        
+        if ($already_registered) {
+            self::$route_registered = true;
+            return;
+        }
+        
+        // Register route on rest_api_init hook (only if not already registered)
+        add_action('rest_api_init', array($this, 'register_fallback_route'), 10);
+        
+        // Mark as registered in this request
+        self::$route_registered = true;
     }
-
+    
     /**
-     * Verifica as rotas REST e cria fallback se necessário
+     * Register fallback route (called only once per site)
      */
-    public function check_routes() {
-        $routes_to_check = array(
-            'pmpro/v1/levels',
-            'miracole/v1/levels'
-        );
-
-        $found_routes = array();
-
-        foreach ($routes_to_check as $route) {
-            $url = home_url('/wp-json/' . $route);
-            $response = wp_remote_get($url, array(
-                'timeout' => 5,
-                'sslverify' => false
+    public function register_fallback_route() {
+        // Check if route already exists (only check once, cache result)
+        $route_exists = $this->check_route_exists();
+        
+        // If route doesn't exist, register our fallback
+        if (!$route_exists) {
+            register_rest_route('pmpro/v1', '/levels', array(
+                'methods' => 'GET',
+                'callback' => array($this, 'pmpro_levels_fallback'),
+                'permission_callback' => '__return_true'
             ));
-
-            if (is_wp_error($response)) {
-                error_log('[MiraCole REST Monitor] Error checking ' . $route . ': ' . $response->get_error_message());
-                continue;
+            
+            // Mark as registered (persistent)
+            update_option($this->route_registered_key, true);
+            
+            // Only log once on initial registration
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('[MiraCole REST Monitor] ✅ Fallback route /pmpro/v1/levels registered');
             }
-
-            $status_code = wp_remote_retrieve_response_code($response);
-            $body = wp_remote_retrieve_body($response);
-
-            if ($status_code === 200 && strpos($body, 'rest_no_route') === false && !empty($body)) {
-                $found_routes[] = $route;
-                error_log('[MiraCole REST Monitor] ✅ Route found: /wp-json/' . $route);
-            } else {
-                error_log('[MiraCole REST Monitor] ❌ Missing: /wp-json/' . $route . ' (HTTP ' . $status_code . ')');
-            }
+        } else {
+            // PMPro route exists, mark as registered
+            update_option($this->route_registered_key, true);
         }
-
-        if (!in_array('pmpro/v1/levels', $found_routes)) {
-            $this->create_pmpro_fallback();
-        }
-
-        set_transient($this->cache_key, array(
-            'found' => $found_routes,
-            'timestamp' => time()
-        ), $this->cache_ttl);
-
-        error_log('[MiraCole REST Monitor] Summary: ' . implode(', ', $found_routes ?: array('none')));
     }
-
+    
     /**
-     * Cria rota fallback se a rota do PMPro não existir
+     * Check if PMPro route exists (cached, only runs once per hour)
      */
-    private function create_pmpro_fallback() {
-        $routes = rest_get_server()->get_routes();
-        if (isset($routes['/pmpro/v1/levels'])) {
-            error_log('[MiraCole REST Monitor] PMPro route already exists, skipping fallback');
+    private function check_route_exists() {
+        // Check cache first
+        $cached = get_transient($this->cache_key . '_route_check');
+        if ($cached !== false) {
+            return (bool) $cached;
+        }
+        
+        // Only check routes if REST server is available
+        if (!did_action('rest_api_init')) {
+            // Schedule check for next request
+            return false;
+        }
+        
+        try {
+            $routes = rest_get_server()->get_routes();
+            
+            // Check if PMPro route exists
+            foreach ($routes as $route => $handlers) {
+                if (strpos($route, 'pmpro/v1/levels') !== false) {
+                    // Cache positive result for 1 hour
+                    set_transient($this->cache_key . '_route_check', true, $this->cache_ttl);
+                    return true;
+                }
+            }
+        } catch (Exception $e) {
+            // If error, assume route doesn't exist
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('[MiraCole REST Monitor] Error checking routes: ' . $e->getMessage());
+            }
+        }
+        
+        // Cache negative result for 1 hour
+        set_transient($this->cache_key . '_route_check', false, $this->cache_ttl);
+        return false;
+    }
+    
+    /**
+     * Check routes status only once (cached, optimized)
+     */
+    public function check_routes_status_once() {
+        // Check cache to avoid repeated checks
+        $cached = get_transient($this->cache_key);
+        if ($cached && (time() - $cached['timestamp']) < $this->cache_ttl) {
             return;
         }
-
-        register_rest_route('pmpro/v1', '/levels', array(
-            'methods' => 'GET',
-            'callback' => array($this, 'pmpro_levels_fallback'),
-            'permission_callback' => '__return_true',
-        ));
-
-        error_log('[MiraCole REST Monitor] ⚡ Fallback route /pmpro/v1/levels registered successfully');
+        
+        // Only check if REST server is available
+        if (!did_action('rest_api_init')) {
+            // Schedule check for when REST API is initialized
+            add_action('rest_api_init', array($this, 'check_routes_status_on_demand'), 999);
+            return;
+        }
+        
+        $this->perform_route_check();
     }
-
+    
     /**
-     * Callback da rota fallback
+     * Perform route check on demand (when REST API is ready)
+     */
+    public function check_routes_status_on_demand() {
+        $cached = get_transient($this->cache_key);
+        if ($cached && (time() - $cached['timestamp']) < $this->cache_ttl) {
+            return;
+        }
+        
+        $this->perform_route_check();
+    }
+    
+    /**
+     * Perform the actual route check (optimized)
+     */
+    private function perform_route_check() {
+        try {
+            $routes = rest_get_server()->get_routes();
+            $found_routes = array();
+            
+            // Check if PMPro route exists
+            foreach ($routes as $route => $handlers) {
+                if (strpos($route, 'pmpro/v1/levels') !== false) {
+                    $found_routes[] = 'pmpro/v1/levels';
+                    break;
+                }
+            }
+            
+            // Store results in cache (1 hour)
+            set_transient($this->cache_key, array(
+                'found' => $found_routes,
+                'timestamp' => time()
+            ), $this->cache_ttl);
+            
+            // Only log in debug mode and once per hour
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                if (empty($found_routes)) {
+                    error_log('[MiraCole REST Monitor] ⚠️ PMPro route not found, using fallback');
+                } else {
+                    error_log('[MiraCole REST Monitor] ✅ PMPro route found: ' . implode(', ', $found_routes));
+                }
+            }
+        } catch (Exception $e) {
+            // Silently fail to avoid performance issues
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('[MiraCole REST Monitor] Error in route check: ' . $e->getMessage());
+            }
+        }
+    }
+    
+    /**
+     * Fallback callback for PMPro levels
      */
     public function pmpro_levels_fallback($request) {
+        // Try to use PMPro function if available
         if (function_exists('pmpro_getAllLevels')) {
             $levels = pmpro_getAllLevels(false, true);
             if ($levels) {
-                $normalized = array_map(function ($level) {
-                    return array(
-                        'id' => $level->id ?? ($level->ID ?? null),
-                        'level_id' => $level->id ?? ($level->ID ?? null),
-                        'name' => $level->name ?? '',
-                        'initial_payment' => floatval($level->initial_payment ?? 0),
-                        'billing_amount' => floatval($level->billing_amount ?? 0),
-                        'cycle_number' => intval($level->cycle_number ?? 0),
-                        'cycle_period' => $level->cycle_period ?? null,
-                        'billing_limit' => intval($level->billing_limit ?? 0),
-                        'trial_amount' => floatval($level->trial_amount ?? 0),
-                        'trial_limit' => intval($level->trial_limit ?? 0)
+                // Normalize response format
+                $normalized = array();
+                foreach ($levels as $level) {
+                    $normalized[] = array(
+                        'id' => isset($level->id) ? $level->id : (isset($level->ID) ? $level->ID : null),
+                        'level_id' => isset($level->id) ? $level->id : (isset($level->ID) ? $level->ID : null),
+                        'name' => isset($level->name) ? $level->name : '',
+                        'initial_payment' => isset($level->initial_payment) ? floatval($level->initial_payment) : 0,
+                        'billing_amount' => isset($level->billing_amount) ? floatval($level->billing_amount) : 0,
+                        'cycle_number' => isset($level->cycle_number) ? intval($level->cycle_number) : 0,
+                        'cycle_period' => isset($level->cycle_period) ? $level->cycle_period : null,
+                        'billing_limit' => isset($level->billing_limit) ? intval($level->billing_limit) : 0,
+                        'trial_amount' => isset($level->trial_amount) ? floatval($level->trial_amount) : 0,
+                        'trial_limit' => isset($level->trial_limit) ? intval($level->trial_limit) : 0
                     );
-                }, $levels);
+                }
                 return rest_ensure_response($normalized);
             }
         }
-
-        error_log('[MiraCole REST Monitor] ⚠️ PMPro function not available, serving static fallback levels');
-        return rest_ensure_response($this->get_static_fallback_levels());
-    }
-
-    /**
-     * Dados estáticos fallback
-     */
-    private function get_static_fallback_levels() {
-        return array(
-            array('id' => 2, 'level_id' => 2, 'name' => 'Monthly', 'initial_payment' => 0, 'billing_amount' => 0, 'cycle_number' => 1, 'cycle_period' => 'Month', 'billing_limit' => 0, 'trial_amount' => 0, 'trial_limit' => 0),
-            array('id' => 3, 'level_id' => 3, 'name' => 'Yearly', 'initial_payment' => 0, 'billing_amount' => 0, 'cycle_number' => 1, 'cycle_period' => 'Year', 'billing_limit' => 0, 'trial_amount' => 0, 'trial_limit' => 0),
-            array('id' => 7, 'level_id' => 7, 'name' => 'Early Explorer', 'initial_payment' => 0, 'billing_amount' => 0, 'cycle_number' => 0, 'cycle_period' => null, 'billing_limit' => 0, 'trial_amount' => 0, 'trial_limit' => 0),
-            array('id' => 8, 'level_id' => 8, 'name' => 'Early Adopter', 'initial_payment' => 0, 'billing_amount' => 0, 'cycle_number' => 0, 'cycle_period' => null, 'billing_limit' => 0, 'trial_amount' => 0, 'trial_limit' => 0),
-            array('id' => 9, 'level_id' => 9, 'name' => 'Lifetime', 'initial_payment' => 0, 'billing_amount' => 0, 'cycle_number' => 0, 'cycle_period' => null, 'billing_limit' => 0, 'trial_amount' => 0, 'trial_limit' => 0)
+        
+        // Fallback to static levels if PMPro function not available
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[MiraCole REST Monitor] ⚠️ PMPro function not available, returning static fallback levels');
+        }
+        
+        $static_levels = array(
+            array(
+                'id' => 2,
+                'level_id' => 2,
+                'name' => 'Monthly',
+                'initial_payment' => 0,
+                'billing_amount' => 0,
+                'cycle_number' => 1,
+                'cycle_period' => 'Month',
+                'billing_limit' => 0,
+                'trial_amount' => 0,
+                'trial_limit' => 0
+            ),
+            array(
+                'id' => 3,
+                'level_id' => 3,
+                'name' => 'Yearly',
+                'initial_payment' => 0,
+                'billing_amount' => 0,
+                'cycle_number' => 1,
+                'cycle_period' => 'Year',
+                'billing_limit' => 0,
+                'trial_amount' => 0,
+                'trial_limit' => 0
+            ),
+            array(
+                'id' => 7,
+                'level_id' => 7,
+                'name' => 'Early Explorer',
+                'initial_payment' => 0,
+                'billing_amount' => 0,
+                'cycle_number' => 0,
+                'cycle_period' => null,
+                'billing_limit' => 0,
+                'trial_amount' => 0,
+                'trial_limit' => 0
+            ),
+            array(
+                'id' => 8,
+                'level_id' => 8,
+                'name' => 'Early Adopter',
+                'initial_payment' => 0,
+                'billing_amount' => 0,
+                'cycle_number' => 0,
+                'cycle_period' => null,
+                'billing_limit' => 0,
+                'trial_amount' => 0,
+                'trial_limit' => 0
+            ),
+            array(
+                'id' => 9,
+                'level_id' => 9,
+                'name' => 'Lifetime',
+                'initial_payment' => 0,
+                'billing_amount' => 0,
+                'cycle_number' => 0,
+                'cycle_period' => null,
+                'billing_limit' => 0,
+                'trial_amount' => 0,
+                'trial_limit' => 0
+            )
         );
+        
+        return rest_ensure_response($static_levels);
     }
-
+    
     /**
-     * Aviso no painel
+     * Show admin notice
      */
     public function admin_notice() {
-        if (!current_user_can('manage_options')) return;
-
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        
         $cache = get_transient($this->cache_key);
-        if (!$cache) return;
-
-        $found = $cache['found'] ?? array();
+        if (!$cache) {
+            return;
+        }
+        
+        $found = isset($cache['found']) ? $cache['found'] : array();
         $has_pmpro = in_array('pmpro/v1/levels', $found);
+        
         $class = $has_pmpro ? 'notice notice-success' : 'notice notice-warning';
-        $message = $has_pmpro
+        $message = $has_pmpro 
             ? '✅ PMPro REST route detected. MiraCole REST Monitor is active.'
             : '⚠️ PMPro REST route not found. Fallback route created.';
-
+        
         echo '<div class="' . esc_attr($class) . '"><p>' . esc_html($message) . '</p></div>';
     }
-
+    
     /**
-     * Log no console do admin
+     * Log to browser console
      */
     public function admin_console_log() {
         $cache = get_transient($this->cache_key);
-        if (!$cache) return;
-
+        if (!$cache) {
+            return;
+        }
+        
+        $found = isset($cache['found']) ? $cache['found'] : array();
+        $timestamp = isset($cache['timestamp']) ? $cache['timestamp'] : time();
+        
         $log_data = array(
             'plugin' => 'MiraCole REST Monitor',
             'status' => 'active',
-            'found_routes' => $cache['found'] ?? array(),
-            'timestamp' => date('Y-m-d H:i:s', $cache['timestamp'] ?? time())
+            'found_routes' => $found,
+            'cache_timestamp' => date('Y-m-d H:i:s', $timestamp),
+            'pmpro_available' => in_array('pmpro/v1/levels', $found)
         );
-
+        
         echo '<script>console.log(' . json_encode($log_data) . ');</script>';
     }
 }
 
-// Inicializa o plugin
+// Initialize plugin
 new MiraCole_REST_Monitor();
