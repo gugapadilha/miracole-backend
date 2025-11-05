@@ -5,6 +5,14 @@ const config = require('../config');
 const isPostgreSQL = config.database.port === 5432 || config.database.port === '5432';
 const dbClient = isPostgreSQL ? 'pg' : 'mysql2';
 
+// Determine if SSL should be enabled for PostgreSQL
+// Render and most cloud providers require SSL for PostgreSQL
+const shouldEnableSSL = isPostgreSQL && (
+  process.env.NODE_ENV === 'production' ||
+  process.env.ENABLE_SSL === 'true' ||
+  config.database.host !== 'localhost'
+);
+
 const dbConfig = {
   client: dbClient,
   connection: isPostgreSQL ? {
@@ -13,7 +21,7 @@ const dbConfig = {
     user: config.database.user,
     password: config.database.password,
     database: config.database.database,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+    ssl: shouldEnableSSL ? { rejectUnauthorized: false } : false
   } : {
     host: config.database.host,
     port: config.database.port,
