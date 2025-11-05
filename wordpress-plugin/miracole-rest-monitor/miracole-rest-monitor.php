@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MiraCole REST Monitor
  * Description: Verifica rotas REST do PMPro e adiciona fallback se necessário. Exibe logs no console e error_log.
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: MiraCole+ DevOps
  */
 
@@ -13,16 +13,15 @@ if (!defined('ABSPATH')) {
 class MiraCole_REST_Monitor {
     
     private $cache_key = 'miracole_rest_check_cache';
-    private $cache_ttl = 3600; // 1 hour (increased from 5 minutes)
-    private $route_registered_key = 'miracole_rest_route_registered';
+    private $cache_ttl = 86400; // 24 hours (increased to reduce checks)
     private static $route_registered = false; // Static flag to prevent multiple registrations per request
     
     public function __construct() {
-        // Register fallback route only once during init (not on every REST request)
-        add_action('init', array($this, 'register_fallback_route_once'), 5);
+        // Register fallback route directly on rest_api_init (simplified)
+        add_action('rest_api_init', array($this, 'register_fallback_route'), 10);
         
-        // Check routes status only once on init (cached)
-        add_action('init', array($this, 'check_routes_status_once'), 10);
+        // Check routes status only in admin (for notices) - NOT on every page load
+        add_action('admin_init', array($this, 'check_routes_status_admin'), 10);
         
         // Add admin notice
         add_action('admin_notices', array($this, 'admin_notice'));
@@ -32,132 +31,59 @@ class MiraCole_REST_Monitor {
     }
     
     /**
-     * Register fallback route only once (optimized)
+     * Register fallback route (simplified - always register, no checks)
      */
-    public function register_fallback_route_once() {
+    public function register_fallback_route() {
         // Prevent multiple registrations in the same request
         if (self::$route_registered) {
             return;
         }
         
-        // Check if we've already registered this route (persistent cache)
-        $already_registered = get_option($this->route_registered_key, false);
-        
-        if ($already_registered) {
-            self::$route_registered = true;
-            return;
-        }
-        
-        // Register route on rest_api_init hook (only if not already registered)
-        add_action('rest_api_init', array($this, 'register_fallback_route'), 10);
+        // Always register the fallback route (WordPress will handle duplicates)
+        register_rest_route('pmpro/v1', '/levels', array(
+            'methods' => 'GET',
+            'callback' => array($this, 'pmpro_levels_fallback'),
+            'permission_callback' => '__return_true'
+        ));
         
         // Mark as registered in this request
         self::$route_registered = true;
-    }
-    
-    /**
-     * Register fallback route (called only once per site)
-     */
-    public function register_fallback_route() {
-        // Check if route already exists (only check once, cache result)
-        $route_exists = $this->check_route_exists();
         
-        // If route doesn't exist, register our fallback
-        if (!$route_exists) {
-            register_rest_route('pmpro/v1', '/levels', array(
-                'methods' => 'GET',
-                'callback' => array($this, 'pmpro_levels_fallback'),
-                'permission_callback' => '__return_true'
-            ));
-            
-            // Mark as registered (persistent)
-            update_option($this->route_registered_key, true);
-            
-            // Only log once on initial registration
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[MiraCole REST Monitor] ✅ Fallback route /pmpro/v1/levels registered');
-            }
-        } else {
-            // PMPro route exists, mark as registered
-            update_option($this->route_registered_key, true);
+        // Only log in debug mode
+        if (defined('WP_DEBUG') && WP_DEBUG && WP_DEBUG_LOG) {
+            error_log('[MiraCole REST Monitor] ✅ Fallback route /pmpro/v1/levels registered');
         }
     }
     
     /**
-     * Check if PMPro route exists (cached, only runs once per hour)
+     * Check routes status only in admin (lazy, cached)
      */
-    private function check_route_exists() {
-        // Check cache first
-        $cached = get_transient($this->cache_key . '_route_check');
-        if ($cached !== false) {
-            return (bool) $cached;
+    public function check_routes_status_admin() {
+        // Only check if user is admin
+        if (!current_user_can('manage_options')) {
+            return;
         }
         
-        // Only check routes if REST server is available
-        if (!did_action('rest_api_init')) {
-            // Schedule check for next request
-            return false;
-        }
-        
-        try {
-            $routes = rest_get_server()->get_routes();
-            
-            // Check if PMPro route exists
-            foreach ($routes as $route => $handlers) {
-                if (strpos($route, 'pmpro/v1/levels') !== false) {
-                    // Cache positive result for 1 hour
-                    set_transient($this->cache_key . '_route_check', true, $this->cache_ttl);
-                    return true;
-                }
-            }
-        } catch (Exception $e) {
-            // If error, assume route doesn't exist
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('[MiraCole REST Monitor] Error checking routes: ' . $e->getMessage());
-            }
-        }
-        
-        // Cache negative result for 1 hour
-        set_transient($this->cache_key . '_route_check', false, $this->cache_ttl);
-        return false;
-    }
-    
-    /**
-     * Check routes status only once (cached, optimized)
-     */
-    public function check_routes_status_once() {
         // Check cache to avoid repeated checks
         $cached = get_transient($this->cache_key);
         if ($cached && (time() - $cached['timestamp']) < $this->cache_ttl) {
             return;
         }
         
-        // Only check if REST server is available
-        if (!did_action('rest_api_init')) {
-            // Schedule check for when REST API is initialized
-            add_action('rest_api_init', array($this, 'check_routes_status_on_demand'), 999);
-            return;
-        }
-        
+        // Only check on admin pages, not on every frontend request
+        // This is called only when admin_init fires
         $this->perform_route_check();
     }
     
     /**
-     * Perform route check on demand (when REST API is ready)
-     */
-    public function check_routes_status_on_demand() {
-        $cached = get_transient($this->cache_key);
-        if ($cached && (time() - $cached['timestamp']) < $this->cache_ttl) {
-            return;
-        }
-        
-        $this->perform_route_check();
-    }
-    
-    /**
-     * Perform the actual route check (optimized)
+     * Perform the actual route check (optimized, only in admin)
      */
     private function perform_route_check() {
+        // Only check if REST server is available
+        if (!did_action('rest_api_init')) {
+            return;
+        }
+        
         try {
             $routes = rest_get_server()->get_routes();
             $found_routes = array();
@@ -170,14 +96,14 @@ class MiraCole_REST_Monitor {
                 }
             }
             
-            // Store results in cache (1 hour)
+            // Store results in cache (24 hours)
             set_transient($this->cache_key, array(
                 'found' => $found_routes,
                 'timestamp' => time()
             ), $this->cache_ttl);
             
-            // Only log in debug mode and once per hour
-            if (defined('WP_DEBUG') && WP_DEBUG) {
+            // Only log in debug mode
+            if (defined('WP_DEBUG') && WP_DEBUG && WP_DEBUG_LOG) {
                 if (empty($found_routes)) {
                     error_log('[MiraCole REST Monitor] ⚠️ PMPro route not found, using fallback');
                 } else {
@@ -186,7 +112,7 @@ class MiraCole_REST_Monitor {
             }
         } catch (Exception $e) {
             // Silently fail to avoid performance issues
-            if (defined('WP_DEBUG') && WP_DEBUG) {
+            if (defined('WP_DEBUG') && WP_DEBUG && WP_DEBUG_LOG) {
                 error_log('[MiraCole REST Monitor] Error in route check: ' . $e->getMessage());
             }
         }
