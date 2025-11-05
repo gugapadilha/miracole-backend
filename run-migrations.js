@@ -25,7 +25,7 @@ const dbConfig = {
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASS || '',
     database: process.env.DB_NAME || 'miracole_api',
-    ssl: { rejectUnauthorized: false }
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
   } : {
     host: process.env.DB_HOST || 'localhost',
     port: dbPort,
@@ -48,6 +48,12 @@ async function runMigrations() {
   console.log('🚀 Starting MiraCole+ database migrations...\n');
   
   try {
+    // Check if database connection variables are set
+    if (!process.env.DB_HOST || process.env.DB_HOST === 'localhost') {
+      console.log('⚠️  DB_HOST not configured or is localhost. Skipping migrations.');
+      console.log('💡 Configure DB_HOST in Render Environment Variables to run migrations.');
+      return;
+    }
     // Create database if it doesn't exist (MySQL only, PostgreSQL database must exist)
     if (!isPostgreSQL) {
       const dbWithoutDatabase = knex({
@@ -118,17 +124,20 @@ async function runMigrations() {
       console.error('\nFull error:', error);
     }
     console.error('\n💡 Troubleshooting:');
-    console.error('1. Verify database connection settings in .env:');
-    console.error('   - DB_HOST (should NOT be localhost on Render!)');
-    console.error('   - DB_PORT (usually 3306 for MySQL)');
+    console.error('1. Verify database connection settings in Environment Variables:');
+    console.error('   - DB_HOST (should be: dpg-xxxxx.oregon-postgres.render.com)');
+    console.error('   - DB_PORT (5432 for PostgreSQL, 3306 for MySQL)');
     console.error('   - DB_USER');
     console.error('   - DB_PASS');
     console.error('   - DB_NAME');
     console.error('\n2. If running on Render, make sure:');
     console.error('   - Database is created in Render Dashboard');
-    console.error('   - DB_HOST is the database hostname (NOT localhost)');
+    console.error('   - DB_HOST is the FULL database hostname (NOT just the prefix)');
     console.error('   - Database is accessible from your service');
-    process.exit(1);
+    console.error('\n⚠️  Server will start anyway, but migrations need to be run manually.');
+    console.error('💡 You can retry migrations by restarting the service after fixing DB_HOST.');
+    // Don't exit - let the server start anyway
+    // process.exit(1);
   }
 }
 

@@ -13,7 +13,7 @@ const dbConfig = {
     user: config.database.user,
     password: config.database.password,
     database: config.database.database,
-    ssl: { rejectUnauthorized: false }
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
   } : {
     host: config.database.host,
     port: config.database.port,
