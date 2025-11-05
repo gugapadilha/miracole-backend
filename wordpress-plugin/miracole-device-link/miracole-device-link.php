@@ -8,12 +8,25 @@ Author: MiraCole+
 
 if (!defined('ABSPATH')) { exit; }
 
-// Backend base URL setting (filterable). Example: https://api.yourdomain.com
+// Backend base URL setting (filterable). Uses same URL as backend connector
 function miracole_device_link_backend_base_url() {
-    $default = getenv('MIRACOLE_BACKEND_BASE_URL');
-    if (!$default) {
-        $default = site_url('/api'); // fallback for local proxies
+    // First check WordPress option (from backend connector settings)
+    $backend_url = get_option('miracole_backend_url');
+    if ($backend_url) {
+        return apply_filters('miracole_device_link_backend_base_url', rtrim($backend_url, '/'));
     }
+    
+    // Then check environment variable
+    $default = getenv('MIRACOLE_BACKEND_URL');
+    if (!$default) {
+        $default = getenv('MIRACOLE_BACKEND_BASE_URL');
+    }
+    
+    // Final fallback
+    if (!$default) {
+        $default = 'https://miracole-backend.onrender.com';
+    }
+    
     return apply_filters('miracole_device_link_backend_base_url', rtrim($default, '/'));
 }
 
@@ -66,7 +79,7 @@ function miracole_device_link_shortcode() {
           const password = $('mc-pass').value;
           if(!username || !password){ setStatus('Enter username and password.', '#b91c1c'); return; }
           setStatus('Signing in...', '#6b7280');
-          const res = await fetch(backend + '/auth/login', {
+          const res = await fetch(backend + '/api/auth/login', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
           });
@@ -84,7 +97,7 @@ function miracole_device_link_shortcode() {
           const token = localStorage.getItem('mc_access');
           if(!token){ setStatus('Sign in first, then confirm the device.', '#b91c1c'); return; }
           setStatus('Confirming device...', '#6b7280');
-          const res = await fetch(backend + '/device/confirm', {
+          const res = await fetch(backend + '/api/device/confirm', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
