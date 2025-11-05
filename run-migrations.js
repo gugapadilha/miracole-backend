@@ -25,7 +25,7 @@ const dbConfig = {
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASS || '',
     database: process.env.DB_NAME || 'miracole_api',
-    ssl: isPostgreSQL ? { rejectUnauthorized: false } : false
+    ssl: { rejectUnauthorized: false }
   } : {
     host: process.env.DB_HOST || 'localhost',
     port: dbPort,

@@ -13,7 +13,7 @@ const dbConfig = {
     user: config.database.user,
     password: config.database.password,
     database: config.database.database,
-    ssl: isPostgreSQL ? { rejectUnauthorized: false } : false
+    ssl: { rejectUnauthorized: false }
   } : {
     host: config.database.host,
     port: config.database.port,
