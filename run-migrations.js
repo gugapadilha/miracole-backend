@@ -83,7 +83,24 @@ async function runMigrations() {
     
   } catch (error) {
     console.error('\n❌ Migration failed:');
-    console.error(error.message);
+    console.error('Error:', error.message);
+    if (error.code) {
+      console.error('Error Code:', error.code);
+    }
+    if (process.env.NODE_ENV === 'development') {
+      console.error('\nFull error:', error);
+    }
+    console.error('\n💡 Troubleshooting:');
+    console.error('1. Verify database connection settings in .env:');
+    console.error('   - DB_HOST (should NOT be localhost on Render!)');
+    console.error('   - DB_PORT (usually 3306 for MySQL)');
+    console.error('   - DB_USER');
+    console.error('   - DB_PASS');
+    console.error('   - DB_NAME');
+    console.error('\n2. If running on Render, make sure:');
+    console.error('   - Database is created in Render Dashboard');
+    console.error('   - DB_HOST is the database hostname (NOT localhost)');
+    console.error('   - Database is accessible from your service');
     process.exit(1);
   }
 }
