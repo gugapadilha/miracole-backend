@@ -34,6 +34,16 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Test endpoint (no database required)
+app.get('/api/test', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'API is working!',
+    timestamp: new Date().toISOString(),
+    environment: config.nodeEnv
+  });
+});
+
 // Rate limiting middleware (apply to all other routes)
 // In development, disable the global limiter to avoid accidental 429s
 if (config.nodeEnv === 'production') {

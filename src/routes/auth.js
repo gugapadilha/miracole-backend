@@ -118,9 +118,12 @@ router.post('/login', loginRateLimit, async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
+    const isDev = process.env.NODE_ENV === 'development';
     res.status(500).json({
       error: 'Internal server error',
-      message: 'Authentication failed'
+      message: 'Authentication failed',
+      details: isDev ? error.message : undefined,
+      stack: isDev ? error.stack : undefined
     });
   }
 });

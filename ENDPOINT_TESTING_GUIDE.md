@@ -12,6 +12,24 @@
 
 ---
 
+## ⚠️ PROBLEMA CRÍTICO: Database Não Configurado
+
+**Se os endpoints retornam 404 ou 500, o problema é que o database não está configurado no Render!**
+
+### Endpoints que Funcionam SEM Database:
+- ✅ `GET /health` - Funciona
+- ✅ `GET /api/test` - Funciona (novo endpoint de teste)
+
+### Endpoints que PRECISAM de Database:
+- ❌ `POST /api/device/code` - Precisam de database
+- ❌ `POST /api/device/poll` - Precisam de database
+- ❌ `POST /api/auth/login` - Precisam de database (refresh tokens)
+- ❌ `GET /api/me` - Precisam de database
+
+**Solução:** Veja `DATABASE_CONFIGURATION_GUIDE.md` para configurar o database!
+
+---
+
 ## 📋 Status de Implementação
 
 ### ✅ Backend Node.js (Render) - IMPLEMENTADO
@@ -60,7 +78,7 @@ Todos os endpoints estão implementados no backend Node.js:
 
 ## 🧪 Como Testar os Endpoints
 
-### 1. Health Check (Sem autenticação)
+### 1. Health Check (Sem autenticação, sem database)
 
 ```bash
 curl https://miracole-backend.onrender.com/health
@@ -70,10 +88,30 @@ curl https://miracole-backend.onrender.com/health
 ```json
 {
   "status": "ok",
-  "timestamp": "2025-01-XX...",
-  "environment": "production"
+  "timestamp": "2025-11-05T...",
+  "environment": "development"
 }
 ```
+
+---
+
+### 1.5. Test Endpoint (Sem autenticação, sem database)
+
+```bash
+curl https://miracole-backend.onrender.com/api/test
+```
+
+**Resposta esperada:**
+```json
+{
+  "success": true,
+  "message": "API is working!",
+  "timestamp": "2025-11-05T...",
+  "environment": "development"
+}
+```
+
+**⚠️ Se este endpoint não funcionar, o problema é no servidor, não no database!**
 
 ---
 

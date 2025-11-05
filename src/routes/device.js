@@ -25,6 +25,18 @@ async function cleanupExpiredDeviceCodes() {
  */
 router.post('/code', deviceCodeRateLimit, async (req, res) => {
   try {
+    // Test database connection first
+    try {
+      await db.raw('SELECT 1');
+    } catch (dbError) {
+      console.error('Database connection error:', dbError.message);
+      return res.status(503).json({
+        error: 'Service Unavailable',
+        message: 'Database connection failed. Please check database configuration.',
+        details: process.env.NODE_ENV === 'development' ? dbError.message : undefined
+      });
+    }
+
     await cleanupExpiredDeviceCodes();
 
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
@@ -33,8 +45,17 @@ router.post('/code', deviceCodeRateLimit, async (req, res) => {
     while (attempts < 5) {
       attempts += 1;
       deviceCode = generateDeviceCode(8);
-      const existing = await db('devices').where({ device_code: deviceCode }).first();
-      if (!existing) break;
+      try {
+        const existing = await db('devices').where({ device_code: deviceCode }).first();
+        if (!existing) break;
+      } catch (dbError) {
+        console.error('Database query error:', dbError.message);
+        return res.status(503).json({
+          error: 'Service Unavailable',
+          message: 'Database query failed',
+          details: process.env.NODE_ENV === 'development' ? dbError.message : undefined
+        });
+      }
     }
 
     if (!deviceCode) {
@@ -44,12 +65,21 @@ router.post('/code', deviceCodeRateLimit, async (req, res) => {
       });
     }
 
-    await db('devices').insert({
-      device_code: deviceCode,
-      user_id: null,
-      linked: false,
-      expires_at: expiresAt
-    });
+    try {
+      await db('devices').insert({
+        device_code: deviceCode,
+        user_id: null,
+        linked: false,
+        expires_at: expiresAt
+      });
+    } catch (dbError) {
+      console.error('Database insert error:', dbError.message);
+      return res.status(503).json({
+        error: 'Service Unavailable',
+        message: 'Failed to save device code',
+        details: process.env.NODE_ENV === 'development' ? dbError.message : undefined
+      });
+    }
 
     console.log(`Device code created: ${deviceCode} (expires in 15m)`);
 
@@ -62,7 +92,8 @@ router.post('/code', deviceCodeRateLimit, async (req, res) => {
     console.error('Device code generation error:', error);
     res.status(500).json({
       error: 'Internal server error',
-      message: 'Failed to generate device code'
+      message: 'Failed to generate device code',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -73,6 +104,18 @@ router.post('/code', deviceCodeRateLimit, async (req, res) => {
  */
 router.post('/poll', async (req, res) => {
   try {
+    // Test database connection first
+    try {
+      await db.raw('SELECT 1');
+    } catch (dbError) {
+      console.error('Database connection error:', dbError.message);
+      return res.status(503).json({
+        error: 'Service Unavailable',
+        message: 'Database connection failed. Please check database configuration.',
+        details: process.env.NODE_ENV === 'development' ? dbError.message : undefined
+      });
+    }
+
     await cleanupExpiredDeviceCodes();
 
     const code = req.body.deviceCode || req.body.device_code || req.query.code || req.query.deviceCode;
@@ -83,12 +126,22 @@ router.post('/poll', async (req, res) => {
       });
     }
 
-    const record = await db('devices')
-      .where({ device_code: code })
-      .andWhere(function () {
-        this.whereNull('expires_at').orWhere('expires_at', '>', new Date());
-      })
-      .first();
+    let record;
+    try {
+      record = await db('devices')
+        .where({ device_code: code })
+        .andWhere(function () {
+          this.whereNull('expires_at').orWhere('expires_at', '>', new Date());
+        })
+        .first();
+    } catch (dbError) {
+      console.error('Database query error:', dbError.message);
+      return res.status(503).json({
+        error: 'Service Unavailable',
+        message: 'Database query failed',
+        details: process.env.NODE_ENV === 'development' ? dbError.message : undefined
+      });
+    }
 
     if (!record) {
       return res.json({ success: true, activated: false });
@@ -103,7 +156,8 @@ router.post('/poll', async (req, res) => {
     console.error('Device poll error:', error);
     res.status(500).json({
       error: 'Internal server error',
-      message: 'Failed to poll device status'
+      message: 'Failed to poll device status',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -111,6 +165,18 @@ router.post('/poll', async (req, res) => {
 // Also support GET for polling with query param (?code=AB12CD34)
 router.get('/poll', async (req, res) => {
   try {
+    // Test database connection first
+    try {
+      await db.raw('SELECT 1');
+    } catch (dbError) {
+      console.error('Database connection error:', dbError.message);
+      return res.status(503).json({
+        error: 'Service Unavailable',
+        message: 'Database connection failed. Please check database configuration.',
+        details: process.env.NODE_ENV === 'development' ? dbError.message : undefined
+      });
+    }
+
     await cleanupExpiredDeviceCodes();
 
     const code = req.query.code || req.query.deviceCode;
@@ -121,12 +187,22 @@ router.get('/poll', async (req, res) => {
       });
     }
 
-    const record = await db('devices')
-      .where({ device_code: code })
-      .andWhere(function () {
-        this.whereNull('expires_at').orWhere('expires_at', '>', new Date());
-      })
-      .first();
+    let record;
+    try {
+      record = await db('devices')
+        .where({ device_code: code })
+        .andWhere(function () {
+          this.whereNull('expires_at').orWhere('expires_at', '>', new Date());
+        })
+        .first();
+    } catch (dbError) {
+      console.error('Database query error:', dbError.message);
+      return res.status(503).json({
+        error: 'Service Unavailable',
+        message: 'Database query failed',
+        details: process.env.NODE_ENV === 'development' ? dbError.message : undefined
+      });
+    }
 
     if (!record) {
       return res.json({ success: true, activated: false });
@@ -141,7 +217,8 @@ router.get('/poll', async (req, res) => {
     console.error('Device poll error:', error);
     res.status(500).json({
       error: 'Internal server error',
-      message: 'Failed to poll device status'
+      message: 'Failed to poll device status',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
