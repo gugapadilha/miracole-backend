@@ -26,12 +26,38 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(requestLogger);
 
 // Health check endpoint (before rate limiting)
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    environment: config.nodeEnv
-  });
+app.get('/health', async (req, res) => {
+  try {
+    // Quick database health check (with timeout)
+    const db = require('./db/knex');
+    const dbCheck = Promise.race([
+      db.raw('SELECT 1'),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('DB timeout')), 2000))
+    ]);
+    
+    await dbCheck;
+    
+    res.status(200).json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      environment: config.nodeEnv,
+      database: 'connected',
+      memory: {
+        used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+        total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+        rss: Math.round(process.memoryUsage().rss / 1024 / 1024)
+      }
+    });
+  } catch (error) {
+    // Still return 200 but indicate database issue
+    res.status(200).json({
+      status: 'degraded',
+      timestamp: new Date().toISOString(),
+      environment: config.nodeEnv,
+      database: 'disconnected',
+      error: error.message
+    });
+  }
 });
 
 // Test endpoint (no database required)

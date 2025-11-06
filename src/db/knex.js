@@ -32,8 +32,13 @@ const dbConfig = {
     charset: config.database.charset
   },
   pool: {
-    min: 2,
-    max: 10
+    min: 0, // Start with 0 connections, create as needed
+    max: 5, // Reduced from 10 to save memory on Render free tier
+    acquireTimeoutMillis: 30000, // 30 seconds
+    createTimeoutMillis: 30000,
+    idleTimeoutMillis: 30000,
+    reapIntervalMillis: 1000,
+    createRetryIntervalMillis: 100
   },
   migrations: {
     directory: path.join(__dirname, '..', 'migrations'),

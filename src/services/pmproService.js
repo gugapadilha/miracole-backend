@@ -1,9 +1,37 @@
 const axios = require('axios');
 const config = require('../config');
 
-// Simple in-memory cache
+// Simple in-memory cache with size limit to prevent memory leaks
 const cache = new Map();
 const CACHE_TTL = 300000; // 5 minutes
+const MAX_CACHE_SIZE = 1000; // Maximum cache entries
+
+// Cleanup old cache entries periodically
+function cleanupCache() {
+  const now = Date.now();
+  let deleted = 0;
+  
+  for (const [key, item] of cache.entries()) {
+    if ((now - item.timestamp) >= CACHE_TTL) {
+      cache.delete(key);
+      deleted++;
+    }
+  }
+  
+  // If still too large, remove oldest entries
+  if (cache.size > MAX_CACHE_SIZE) {
+    const entries = Array.from(cache.entries())
+      .sort((a, b) => a[1].timestamp - b[1].timestamp);
+    
+    const toDelete = cache.size - MAX_CACHE_SIZE;
+    for (let i = 0; i < toDelete; i++) {
+      cache.delete(entries[i][0]);
+    }
+  }
+}
+
+// Cleanup every 5 minutes
+setInterval(cleanupCache, 300000);
 
 class PMProService {
   constructor() {

@@ -23,9 +23,9 @@ function throttleRequest(req, res, next) {
   
   requestThrottle.set(throttleKey, now);
   
-  // Clean old entries periodically
-  if (requestThrottle.size > 1000) {
-    const cutoff = now - THROTTLE_WINDOW * 10;
+  // Clean old entries more aggressively
+  if (requestThrottle.size > 500) {
+    const cutoff = now - THROTTLE_WINDOW * 5; // Reduced from 10 to 5
     for (const [key, timestamp] of requestThrottle.entries()) {
       if (timestamp < cutoff) {
         requestThrottle.delete(key);
