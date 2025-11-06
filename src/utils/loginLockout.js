@@ -9,11 +9,29 @@ async function init() {
     client = redis.createClient({
       host: config.redis.host,
       port: config.redis.port,
-      password: config.redis.password
+      password: config.redis.password,
+      socket: {
+        connectTimeout: 2000, // 2 seconds timeout
+        reconnectStrategy: false // Don't auto-reconnect
+      }
     });
-    await client.connect();
+    
+    // Add timeout to connection attempt
+    const connectPromise = client.connect();
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Redis connection timeout')), 2000)
+    );
+
+    await Promise.race([connectPromise, timeoutPromise]);
     console.log('✅ Redis connected for login lockout');
   } catch (err) {
+    if (client) {
+      try {
+        await client.quit();
+      } catch (e) {
+        // Ignore quit errors
+      }
+    }
     client = null;
     console.error('❌ Redis (lockout) connection failed:', err.message);
   }

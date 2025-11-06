@@ -10,14 +10,31 @@ const initRedis = async () => {
     redisClient = redis.createClient({
       host: config.redis.host,
       port: config.redis.port,
-      password: config.redis.password
+      password: config.redis.password,
+      socket: {
+        connectTimeout: 2000, // 2 seconds timeout
+        reconnectStrategy: false // Don't auto-reconnect
+      }
     });
 
-    await redisClient.connect();
+    // Add timeout to connection attempt
+    const connectPromise = redisClient.connect();
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Redis connection timeout')), 2000)
+    );
+
+    await Promise.race([connectPromise, timeoutPromise]);
     console.log('✅ Redis connected for rate limiting');
   } catch (error) {
     console.error('❌ Redis connection failed:', error.message);
     // Fallback to memory-based rate limiting
+    if (redisClient) {
+      try {
+        await redisClient.quit();
+      } catch (e) {
+        // Ignore quit errors
+      }
+    }
     redisClient = null;
   }
 };
