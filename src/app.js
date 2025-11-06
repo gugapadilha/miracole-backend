@@ -58,6 +58,9 @@ app.use('/api/me', require('./routes/me'));
 app.use('/api/plans', require('./routes/plans'));
 app.use('/api/members', require('./routes/members'));
 
+// ⚠️ TEMPORARY: Migration endpoint - REMOVE after migrations are complete!
+app.use('/api', require('./routes/migrate'));
+
 // Error handling middleware
 app.use(errorLogger);
 app.use((err, req, res, next) => {

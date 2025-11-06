@@ -16,6 +16,9 @@ const dbPort = parseInt(process.env.DB_PORT || '3306');
 const isPostgreSQL = dbPort === 5432;
 const dbClient = isPostgreSQL ? 'pg' : 'mysql2';
 
+// Check if SSL should be enabled (via ENABLE_SSL env var or production mode)
+const enableSSL = process.env.ENABLE_SSL === 'true' || process.env.NODE_ENV === 'production';
+
 // Database configuration
 const dbConfig = {
   client: dbClient,
@@ -25,7 +28,7 @@ const dbConfig = {
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASS || '',
     database: process.env.DB_NAME || 'miracole_api',
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+    ssl: enableSSL ? { rejectUnauthorized: false } : false
   } : {
     host: process.env.DB_HOST || 'localhost',
     port: dbPort,
