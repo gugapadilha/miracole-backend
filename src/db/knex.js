@@ -1,4 +1,5 @@
 const knex = require('knex');
+const path = require('path');
 const config = require('../config');
 
 // Detect database type by port (5432 = PostgreSQL, 3306 = MySQL)
@@ -35,11 +36,11 @@ const dbConfig = {
     max: 10
   },
   migrations: {
-    directory: '../migrations',
+    directory: path.join(__dirname, '..', 'migrations'),
     tableName: 'knex_migrations'
   },
   seeds: {
-    directory: '../seeds'
+    directory: path.join(__dirname, '..', 'seeds')
   }
 };
 
